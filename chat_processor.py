@@ -2,11 +2,14 @@
 """
 Main chat processing orchestrator. Uses helper modules for configuration,
 initialization, logging, and tool handling.
+Supports multi-turn function calling within a single user request.
+Includes a system instruction to guide model behavior.
 """
 import asyncio
 import os
 import sys
 import traceback
+import json # Import json for logging tool structure
 from typing import Dict, Any, List, Tuple, Optional
 
 # --- Google Generative AI SDK Imports ---
@@ -26,11 +29,23 @@ from mcp_server import MCPServer # Type hint for mcp_servers dictionary
 gemini_client: Optional[genai.Client] = None
 mcp_servers: Dict[str, MCPServer] = {}
 
+# --- Constants ---
+MAX_FUNCTION_CALLS_PER_TURN = 5 # Safeguard against infinite loops
+
+# --- NEW: System Instruction ---
+SYSTEM_INSTRUCTION = """You are a helpful assistant with access to tools for interacting with a local filesystem and a knowledge graph API.
+
+You can use these tools sequentially within a single user turn to fulfill complex requests. If a request requires multiple steps (like reading one file to find the name of another file to read), make the necessary function calls one after another.
+
+After you have finished using all the tools required for the user's request, provide a final, comprehensive answer synthesizing the information gathered. Please use Markdown formatting (like code blocks, lists, etc.) in your final response where appropriate."""
+# --- END NEW ---
+
+
 # --- Core Async Prompt Processing Logic ---
 async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Content]) -> Tuple[str, List[genai_types.Content], List[str]]:
     """
     Processes user prompt, discovers tools, orchestrates Gemini calls,
-    and handles tool execution via helper functions.
+    and handles tool execution, allowing for multiple function calls per turn.
 
     Args:
         user_prompt: The new prompt from the user.
@@ -43,167 +58,148 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
         - A list of internal step messages for display during this turn.
     """
     internal_steps = [] # Log steps for this specific turn
+    final_text_response = "Error: Processing failed to produce a response." # Default error
 
     # --- Pre-checks ---
-    if not gemini_client: # Check if client was initialized successfully at startup
+    if not gemini_client:
         utils.add_debug_log("Error: process_prompt called but Gemini client is not initialized.")
         return "Error: Chat processor not ready.", gemini_history, ["Initialization error."]
-    if not mcp_servers: # Check if MCP servers were initialized
+    if not mcp_servers:
          utils.add_debug_log("Warning: process_prompt called but MCP servers dictionary is empty.")
-         # Allow processing but warn that tools might not work
          internal_steps.append("Warning: Tool servers may not be available.")
 
-
-    # --- Prepare History ---
+    # --- Prepare Initial History & Discover Tools ---
     try:
          user_part = genai_types.Part(text=user_prompt)
-         current_turn_history = gemini_history + [genai_types.Content(parts=[user_part], role="user")]
+         # Start a *copy* of the history for this turn's processing
+         current_turn_history = list(gemini_history)
+         current_turn_history.append(genai_types.Content(parts=[user_part], role="user"))
          internal_steps.append(f"Processing prompt: '{user_prompt}'")
+
+         # Discover and format tools ONCE at the beginning of the turn
+         all_mcp_tools = await tool_handler.discover_and_format_tools(mcp_servers, internal_steps)
+         utils.add_debug_log(f"Discovered {len(all_mcp_tools)} MCP tools for this turn.")
+
     except Exception as e:
-         utils.add_debug_log(f"Error creating user content: {e}")
-         return "Error processing user input.", gemini_history, ["Input processing error."]
+         utils.add_debug_log(f"Error during initial setup: {e}")
+         return "Error preparing request.", gemini_history, ["Input processing error."]
 
-    # --- Main Processing Block ---
-    try:
-        # 1. Discover and Format Tools (using tool_handler)
-        # Pass the globally initialized mcp_servers dictionary
-        all_gemini_tools = await tool_handler.discover_and_format_tools(mcp_servers, internal_steps)
+    # --- Main Processing Loop ---
+    function_call_count = 0
+    while function_call_count < MAX_FUNCTION_CALLS_PER_TURN:
+        utils.add_debug_log(f"--- Starting API Call Loop Iteration {function_call_count + 1} ---")
+        internal_steps.append(f"Sending request to Gemini (iteration {function_call_count + 1})...")
 
-        # 2. First Gemini Call
-        internal_steps.append("Sending prompt and discovered tools to Gemini...")
-        utils.add_debug_log(f"Calling Gemini (1st pass) with {len(all_gemini_tools)} total tools...")
-        response = None
         try:
-            # Use model name from config
-            response = gemini_client.models.generate_content( # Synchronous call
+            # --- Log the tools being passed (optional, can be verbose) ---
+            if function_call_count == 0: # Log tools only on the first iteration
+                if all_mcp_tools:
+                    try:
+                        tools_log_repr = [tool.model_dump(mode='json') for tool in all_mcp_tools]
+                        utils.add_debug_log(f"Tools passed to Gemini:\n{json.dumps(tools_log_repr, indent=2)}")
+                    except Exception as log_e:
+                        utils.add_debug_log(f"Could not serialize tools list for logging: {log_e}")
+                else:
+                    utils.add_debug_log("No MCP tools being passed to Gemini.")
+            # --- End Log ---
+
+            # --- Call Gemini API ---
+            response = gemini_client.models.generate_content(
                 model=config.GENERATION_GEMINI_MODEL,
-                contents=current_turn_history,
+                contents=current_turn_history, # Send the latest history
+                # --- MODIFIED: Add system instruction ---
+                # --- END MODIFIED ---
                 config=genai_types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
                     temperature=0.7,
-                    tools=all_gemini_tools if all_gemini_tools else None
+                    # Pass the discovered tools on every iteration
+                    tools=all_mcp_tools if all_mcp_tools else None
                 ),
             )
-            utils.add_debug_log(f"Gemini initial response received. Candidates: {len(response.candidates) if response and response.candidates else 'N/A'}")
-            internal_steps.append("Received initial response structure.")
-        except Exception as e:
-            error_trace = traceback.format_exc()
-            utils.add_debug_log(f"Exception DURING/AFTER first Gemini call: {e}\n{error_trace}")
-            internal_steps.append(f"Error during/after first Gemini API call: {e}")
-            return f"Error communicating with Gemini API: {e}", gemini_history, internal_steps
+            utils.add_debug_log(f"Gemini response received. Candidates: {len(response.candidates) if response and response.candidates else 'N/A'}")
 
-        # 3. Validate Response & Process First Candidate
-        if not response or not response.candidates:
-             feedback = response.prompt_feedback if response else "N/A"
-             utils.add_debug_log(f"Gemini response issue: No candidates. Feedback: {feedback}")
-             internal_steps.append(f"Warning: Gemini response had no candidates. Feedback: {feedback}")
-             if response and response.text:
-                 current_turn_history.append(genai_types.Content(parts=[genai_types.Part(text=response.text)], role="model"))
-                 return response.text, current_turn_history, internal_steps
-             else:
-                 return "Error: Gemini returned no candidates and no text.", gemini_history, internal_steps
+            # --- Validate Response & Process Candidate ---
+            if not response or not response.candidates:
+                feedback = response.prompt_feedback if response else "N/A"
+                utils.add_debug_log(f"Gemini response issue: No candidates. Feedback: {feedback}")
+                internal_steps.append(f"Warning: Gemini response had no candidates. Feedback: {feedback}")
+                final_text_response = "Error: Gemini returned no candidates."
+                if response and response.text:
+                     final_text_response = response.text
+                     current_turn_history.append(genai_types.Content(parts=[genai_types.Part(text=final_text_response)], role="model"))
+                break # Exit loop on invalid response
 
-        function_call_requested = None
-        first_candidate = response.candidates[0]
-        utils.add_debug_log(f"Processing candidate 0. Finish Reason: {first_candidate.finish_reason}. Safety: {first_candidate.safety_ratings}")
-        if first_candidate.content:
-             current_turn_history.append(first_candidate.content) # Add model response to history
-             if first_candidate.content.parts:
+            first_candidate = response.candidates[0]
+            utils.add_debug_log(f"Processing candidate 0. Finish Reason: {first_candidate.finish_reason}. Safety: {first_candidate.safety_ratings}")
+
+            # --- IMPORTANT: Add Model's Response Content to History ---
+            if first_candidate.content:
+                 current_turn_history.append(first_candidate.content)
+            else:
+                 utils.add_debug_log("Warning: First candidate has no content. Cannot proceed.")
+                 internal_steps.append("Warning: Gemini candidate had no content.")
+                 final_text_response = "Error: Gemini response lacked content."
+                 break # Exit loop
+
+            # --- Check for Function Call ---
+            function_call_requested = None
+            if first_candidate.content.parts:
                  for part in first_candidate.content.parts:
                      if part.function_call:
                          function_call_requested = part.function_call
-                         # Logging is handled within tool_handler now
-                         break
-             else: utils.add_debug_log("Candidate 0 has no parts.")
-        else: utils.add_debug_log("Warning: First candidate has no content.")
+                         break # Found a function call
 
-        # 4. Handle Function Call OR Text Response
-        if function_call_requested:
-            # 4a. Execute Tool (using tool_handler)
-            # Pass the globally initialized mcp_servers dictionary
-            function_response_part = await tool_handler.handle_function_call(
-                function_call_requested, mcp_servers, internal_steps
-            )
+            if function_call_requested:
+                function_call_count += 1
+                utils.add_debug_log(f"Gemini requested function call #{function_call_count}: {function_call_requested.name}")
+                internal_steps.append(f"Gemini wants to use tool: {function_call_requested.name} (call {function_call_count}/{MAX_FUNCTION_CALLS_PER_TURN})")
 
-            # 4b. Add FunctionResponse to History
-            current_turn_history.append(genai_types.Content(
-                role="function",
-                parts=[genai_types.Part(function_response=function_response_part)]
-            ))
-            internal_steps.append("Sending tool result/error back to Gemini...")
-            utils.add_debug_log("Calling Gemini (2nd pass)...")
-
-            # 4c. Second Gemini Call
-            try:
-                # Use model name from config
-                final_response = gemini_client.models.generate_content( # Synchronous
-                    model=config.GENERATION_GEMINI_MODEL,
-                    contents=current_turn_history,
-                    config=genai_types.GenerateContentConfig(temperature=0.7),
+                # --- Execute Tool ---
+                function_response_part = await tool_handler.handle_function_call(
+                    function_call_requested, mcp_servers, internal_steps
                 )
-                utils.add_debug_log(f"Gemini final response received. Candidates: {len(final_response.candidates) if final_response and final_response.candidates else 'N/A'}")
 
-                if final_response and final_response.candidates:
-                    if final_response.candidates[0].content:
-                         current_turn_history.append(final_response.candidates[0].content)
-                    final_text = final_response.text
-                    internal_steps.append("Received final response from Gemini.")
-                    # Use log preview length from config (via utils)
-                    utils.add_debug_log(f"Gemini final text preview: {(final_text[:config.LOG_PREVIEW_LEN] + '...' if len(final_text) > config.LOG_PREVIEW_LEN else final_text).replace('\n', ' ')}")
-                    return final_text, current_turn_history, internal_steps
-                else: # No candidates in final response
-                    internal_steps.append("Error: Gemini provided no candidates in final response.")
-                    utils.add_debug_log(f"Gemini final response issue: No candidates. Feedback: {final_response.prompt_feedback if final_response else 'N/A'}")
-                    return "Error: Gemini did not provide final response.", current_turn_history, internal_steps
+                # --- Add Function Response to History ---
+                current_turn_history.append(genai_types.Content(
+                    role="function", # Role MUST be 'function' for the response
+                    parts=[genai_types.Part(function_response=function_response_part)]
+                ))
+                utils.add_debug_log(f"Added function response for {function_call_requested.name} to history.")
+                # --- Continue Loop ---
 
-            except Exception as e:
-                 error_trace = traceback.format_exc()
-                 utils.add_debug_log(f"Exception DURING/AFTER second Gemini call: {e}\n{error_trace}")
-                 internal_steps.append(f"Error during/after second Gemini API call: {e}")
-                 return f"Error communicating with Gemini on final step: {e}", current_turn_history, internal_steps
+            else:
+                # --- No Function Call - Extract Text and Exit Loop ---
+                utils.add_debug_log("No function call requested by Gemini. Assuming final text response.")
+                internal_steps.append("Gemini provided final response.")
+                if response.text:
+                    final_text_response = response.text
+                    utils.add_debug_log(f"Gemini final text preview: {(final_text_response[:config.LOG_PREVIEW_LEN] + '...' if len(final_text_response) > config.LOG_PREVIEW_LEN else final_text_response).replace('\n', ' ')}")
+                else:
+                     utils.add_debug_log("Warning: No function call and no text found in final response.")
+                     internal_steps.append("Warning: Gemini finished but provided no text.")
+                     final_text_response = "Warning: Gemini finished processing but did not provide a textual response."
 
-        else: # 5. No Function Call Requested - Return Text
-             internal_steps.append("Gemini did not request a tool call.")
-             utils.add_debug_log("No function call requested.")
-             if response and response.text:
-                  final_text = response.text
-                  # Use log preview length from config (via utils)
-                  utils.add_debug_log(f"Gemini direct text preview: {(final_text[:config.LOG_PREVIEW_LEN] + '...' if len(final_text) > config.LOG_PREVIEW_LEN else final_text).replace('\n', ' ')}")
-                  # History already includes model response content
-                  return final_text, current_turn_history, internal_steps
-             else:
-                  internal_steps.append("Warning: Gemini provided no function call and no text.")
-                  utils.add_debug_log("Gemini response issue: No function call or text.")
-                  finish_reason = first_candidate.finish_reason if first_candidate else "UNKNOWN"
-                  safety = first_candidate.safety_ratings if first_candidate else "UNKNOWN"
-                  error_msg = f"Error: Gemini provided no actionable response. Finish: {finish_reason}. Safety: {safety}"
-                  return error_msg, current_turn_history, internal_steps
+                break # Exit the while loop
 
-    # --- Outer Error Handling ---
-    # Use specific exceptions if available and imported, otherwise generic Exception
-    except genai_types.BlockedPromptException as bpe: # Replace with actual exception class if different
-         utils.add_debug_log(f"BlockedPromptException: {bpe}")
-         internal_steps.append(f"Error: Request blocked. {bpe}")
-         return f"Error: Request blocked by safety filters.", gemini_history, internal_steps
-    except genai_types.StopCandidateException as sce: # Replace with actual exception class if different
-         utils.add_debug_log(f"StopCandidateException: {sce}")
-         internal_steps.append(f"Error: Generation stopped. {sce}")
-         return f"Error: Generation stopped unexpectedly.", gemini_history, internal_steps
-    except FileNotFoundError as fnfe: # This might now happen inside MCPServer/tool_handler
-        utils.add_debug_log(f"FileNotFoundError: {fnfe}")
-        internal_steps.append(f"Error: Command not found for MCP server.")
-        return "Error: Required command for tool server not found.", gemini_history, internal_steps
-    except ConnectionRefusedError as cre: # This might now happen inside MCPServer/tool_handler
-         utils.add_debug_log(f"ConnectionRefusedError: {cre}")
-         internal_steps.append("Error: Could not connect to MCP server.")
-         return "Error: Failed to connect to tool server process.", gemini_history, internal_steps
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        utils.add_debug_log(f"Unexpected error in process_prompt: {e}\n{error_trace}")
-        internal_steps.append(f"An unexpected error occurred: {e}")
-        return f"An unexpected server error occurred: {e}", gemini_history, internal_steps
+        # --- Handle Errors During API Call/Processing --
+        except Exception as e:
+            error_trace = traceback.format_exc()
+            utils.add_debug_log(f"Unexpected error in API call loop: {e}\n{error_trace}")
+            internal_steps.append(f"An unexpected error occurred during processing: {e}")
+            final_text_response = f"An unexpected server error occurred: {e}"
+            break # Exit loop on unexpected error
 
-# --- Function to retrieve logs (Now just calls utils) ---
-def get_debug_logs() -> List[str]:
-    """Returns a copy of the current debug logs from the utils module."""
-    return utils.get_debug_logs()
+    # --- End of Loop ---
+
+    if function_call_count >= MAX_FUNCTION_CALLS_PER_TURN:
+        utils.add_debug_log(f"Reached maximum function call limit ({MAX_FUNCTION_CALLS_PER_TURN}).")
+        internal_steps.append(f"Warning: Reached maximum tool call limit ({MAX_FUNCTION_CALLS_PER_TURN}). The response might be incomplete.")
+        last_response_text = "Error: Reached max tool call limit."
+        if 'response' in locals() and response and response.text:
+             last_response_text = response.text + f"\n\n(Warning: Reached maximum tool call limit of {MAX_FUNCTION_CALLS_PER_TURN})"
+        final_text_response = last_response_text
+
+
+    # --- Return Results ---
+    return final_text_response, current_turn_history, internal_steps
 

@@ -3,6 +3,7 @@
 Flask web application for the MCP Filesystem Chatbot.
 Handles routing, session management, and interacts with chat_processor.
 Uses initializers module for setup.
+Configured for Server-Side Sessions using Flask-Session (filesystem backend).
 """
 import asyncio
 import os
@@ -13,6 +14,8 @@ from typing import List
 
 # --- Flask Imports ---
 from flask import Flask, request, render_template, redirect, url_for, session
+# --- NEW: Import Session for server-side sessions ---
+from flask_session import Session
 
 # --- Local Imports ---
 import chat_processor      # Main logic orchestrator
@@ -22,7 +25,23 @@ from google.genai import types as genai_types # Needed for type conversion
 
 # --- Flask App Setup ---
 app = Flask(__name__)
-app.secret_key = os.urandom(24) # Secret key for session management
+# Configure secret key (remains important for signing the session ID cookie)
+app.secret_key = os.urandom(24)
+
+# --- NEW: Configure Server-Side Sessions ---
+# Use the filesystem session type
+app.config["SESSION_TYPE"] = "filesystem"
+# Optional: Specify a directory for session files (defaults to 'flask_session' in current dir)
+# app.config["SESSION_FILE_DIR"] = "./.flask_session_files"
+# Ensure session files are created with appropriate permissions
+app.config["SESSION_FILE_THRESHOLD"] = 500 # Number of items before splitting session file (optional performance tuning)
+app.config["SESSION_PERMANENT"] = False # Session expires when browser closes (typical for chats)
+app.config["SESSION_USE_SIGNER"] = True # Keep the session ID cookie signed
+
+# Initialize the Flask-Session extension
+server_session = Session(app)
+# --- END NEW ---
+
 
 # --- Initialize Clients and Servers on Startup ---
 # Call the initialization functions from the initializers module
@@ -48,6 +67,7 @@ if not mcp_ok:
 @app.route('/', methods=['GET'])
 def index():
     """Renders the main chat page, retrieving history from session."""
+    # Session access remains the same, but data is now stored server-side
     if 'chat_history_display' not in session: session['chat_history_display'] = []
     if 'gemini_history_internal' not in session: session['gemini_history_internal'] = []
     return render_template('index.html', chat_history=session['chat_history_display'])
@@ -71,7 +91,7 @@ def chat():
          chat_history_display = session.get('chat_history_display', [])
          chat_history_display.append({'type': 'error', 'text': display_history_error})
          session['chat_history_display'] = chat_history_display
-         session.modified = True
+         session.modified = True # Ensure session changes are saved
          return redirect(url_for('index'))
 
 
@@ -90,7 +110,7 @@ def chat():
          session['gemini_history_internal'] = []
          chat_history_display = [{'type': 'error', 'text': f"Error loading chat history: {e}. History reset."}]
          session['chat_history_display'] = chat_history_display
-         session.modified = True
+         session.modified = True # Ensure session changes are saved
          return render_template('index.html', chat_history=chat_history_display)
 
 
@@ -120,6 +140,7 @@ def chat():
     chat_history_display.append({'type': response_type, 'text': final_response_text})
 
     # --- Store updated history back in session ---
+    # Session storage logic remains the same, Flask-Session handles the backend
     session['chat_history_display'] = chat_history_display
 
     # --- Serialize history item by item ---
@@ -127,12 +148,13 @@ def chat():
     serialization_error_occurred = False
     for i, item in enumerate(updated_gemini_history):
         try:
+            # Use model_dump which is preferred for Pydantic v2+ (used by recent google-genai)
             item_dict = item.model_dump(mode='json')
             serialized_history.append(item_dict)
         except AttributeError: # Fallback for older pydantic/sdk versions
              try:
                   utils.add_debug_log(f"AttributeError: .model_dump() not found for item #{i}. Trying .dict()...")
-                  item_dict = item.dict()
+                  item_dict = item.dict() # .dict() is deprecated but might work
                   serialized_history.append(item_dict)
              except Exception as e_dict:
                   serialization_error_occurred = True
@@ -146,9 +168,11 @@ def chat():
             # Log item details might be helpful here too
 
     session['gemini_history_internal'] = serialized_history
+    # Explicitly mark session as modified - good practice with mutable objects
     session.modified = True
 
     if serialization_error_occurred:
+         # Add error message to display history, which is saved in the session
          session['chat_history_display'].append({'type': 'error', 'text': "Error saving full chat history state. Some history may be lost."})
          session.modified = True
 
@@ -157,8 +181,10 @@ def chat():
 @app.route('/reset', methods=['GET'])
 def reset():
     """Clears the chat history stored in the session."""
+    # session.clear() # Clears all session data
     session.pop('chat_history_display', None)
     session.pop('gemini_history_internal', None)
+    session.modified = True # Ensure changes are saved
     utils.add_debug_log("Chat history reset via /reset.")
     return redirect(url_for('index'))
 
@@ -185,9 +211,11 @@ if __name__ == '__main__':
     #      print("\n--- Flask app not starting due to MCP server initialization failure. ---")
     else:
         print(f"\nFlask app starting. Access at http://127.0.0.1:5000")
+        print(f"Using server-side sessions (type: {app.config['SESSION_TYPE']}).")
         # Target directory is now configured in config.py
         # print(f"MCP server target directory: {config.FILESYSTEM_TARGET_DIRECTORY}")
         print(f"Ensure Node.js/npx is installed and in PATH.")
         print("Use Ctrl+C to stop the server.")
+        # debug=True enables Flask's reloader, which is useful but can sometimes
+        # cause issues with background processes or state. Set to False if needed.
         app.run(debug=True, host='127.0.0.1', port=5000)
-

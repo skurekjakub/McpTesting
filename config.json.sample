@@ -1,0 +1,13 @@
+{
+  "gemini_api_key": "YOUR_GEMINI_API_KEY_GOES_HERE",
+  "filesystem_target_directories": [
+    "C:/path/to/your/first/target/directory",
+    "D:/another/project/path",
+    "/path/on/linux/or/mac"
+  ],
+  "enable_memory_server": true,
+  "default_gemini_model": "gemini-1.5-flash",
+  "generation_gemini_model": "gemini-1.5-flash",
+  "max_debug_log_size": 1500,
+  "log_preview_len": 250
+}
