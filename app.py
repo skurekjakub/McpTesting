@@ -2,45 +2,45 @@
 """
 Flask web application for the MCP Filesystem Chatbot.
 Handles routing, session management, and interacts with chat_processor.
+Uses initializers module for setup.
 """
 import asyncio
 import os
-import sys # Import sys for traceback printing
-import traceback # Import traceback for detailed error logs
-from typing import List # Keep for type hinting if needed
+import sys
+import traceback
+import json
+from typing import List
 
 # --- Flask Imports ---
 from flask import Flask, request, render_template, redirect, url_for, session
 
-# --- Import Core Logic ---
-# Assuming chat_processor.py is in the same directory
-import chat_processor
+# --- Local Imports ---
+import chat_processor      # Main logic orchestrator
+import initializers        # Initialization functions
+import utils               # Logging utilities
 from google.genai import types as genai_types # Needed for type conversion
 
 # --- Flask App Setup ---
 app = Flask(__name__)
-# Secret key is needed for session management
-app.secret_key = os.urandom(24) # Replace with a fixed secret in production if needed
+app.secret_key = os.urandom(24) # Secret key for session management
 
-# --- Initialize Gemini Client and MCP Servers on Startup ---
-# Call the initialization functions from the processor module
-gemini_ok = chat_processor.initialize_gemini_client()
-mcp_ok = False # Flag for MCP server init status
-if gemini_ok:
-    # Initialize MCP servers only if Gemini client is okay
-    try:
-        chat_processor.initialize_mcp_servers()
-        mcp_ok = True # Assume success if no exception
-    except Exception as e:
-         print(f"\n--- ERROR: Failed to initialize MCP servers during startup: {e} ---")
-         chat_processor.add_debug_log(f"MCP Server Init Error: {e}\n{traceback.format_exc()}")
+# --- Initialize Clients and Servers on Startup ---
+# Call the initialization functions from the initializers module
+# Store the results in the global variables within chat_processor
+utils.add_debug_log("App starting up...")
+chat_processor.gemini_client = initializers.initialize_gemini_client()
+chat_processor.mcp_servers = initializers.initialize_mcp_servers()
+
+# Check initialization status
+gemini_ok = chat_processor.gemini_client is not None
+mcp_ok = bool(chat_processor.mcp_servers) # True if dict is not empty
 
 if not gemini_ok:
     print("\n--- WARNING: Gemini client failed to initialize during app startup. ---")
-    print("--- Chat functionality will likely fail. Check API Key and logs. ---")
-if not mcp_ok and gemini_ok: # Only warn about MCP if Gemini was okay
-     print("\n--- WARNING: MCP servers failed to initialize during app startup. ---")
-     print("--- Tool functionality will likely fail. Check MCP server configurations and logs. ---")
+    # Log already added by initializer
+if not mcp_ok:
+     print("\n--- WARNING: MCP servers dictionary is empty after initialization. ---")
+     # Log already added by initializer
 
 
 # --- Flask Routes ---
@@ -48,12 +48,8 @@ if not mcp_ok and gemini_ok: # Only warn about MCP if Gemini was okay
 @app.route('/', methods=['GET'])
 def index():
     """Renders the main chat page, retrieving history from session."""
-    # Initialize session variables if they don't exist
-    if 'chat_history_display' not in session:
-        session['chat_history_display'] = []
-    if 'gemini_history_internal' not in session:
-        session['gemini_history_internal'] = []
-    # Pass the display history to the template
+    if 'chat_history_display' not in session: session['chat_history_display'] = []
+    if 'gemini_history_internal' not in session: session['gemini_history_internal'] = []
     return render_template('index.html', chat_history=session['chat_history_display'])
 
 @app.route('/chat', methods=['POST'])
@@ -61,9 +57,9 @@ def chat():
     """Handles user input, calls async processing, updates session history."""
     user_input = request.form.get('prompt', '').strip()
     if not user_input:
-        return redirect(url_for('index')) # Ignore empty input
+        return redirect(url_for('index'))
 
-    # Check if clients initialization failed earlier
+    # Check if clients initialization failed earlier by checking the globals in chat_processor
     display_history_error = None
     if not chat_processor.gemini_client:
         display_history_error = "Chat client is not initialized. Cannot process request."
@@ -83,43 +79,37 @@ def chat():
     chat_history_display = session.get('chat_history_display', [])
     gemini_history_internal_raw = session.get('gemini_history_internal', [])
 
-    # Convert raw dict history back to Content objects using genai_types
+    # Convert raw dict history back to Content objects
     try:
-        # Use the imported genai_types for consistency
         gemini_history_internal = [genai_types.Content.model_validate(item) for item in gemini_history_internal_raw]
     except Exception as e:
-         # Use the imported logger
-         error_trace = traceback.format_exc() # Get traceback
-         chat_processor.add_debug_log(f"Error deserializing history from session: {e}")
-         chat_processor.add_debug_log(f"Deserialization Traceback:\n{error_trace}")
-         # Reset history if deserialization fails
+         error_trace = traceback.format_exc()
+         utils.add_debug_log(f"Error deserializing history from session: {e}")
+         utils.add_debug_log(f"Deserialization Traceback:\n{error_trace}")
          session['chat_history_display'] = []
          session['gemini_history_internal'] = []
          chat_history_display = [{'type': 'error', 'text': f"Error loading chat history: {e}. History reset."}]
-         session['chat_history_display'] = chat_history_display # Update session immediately
+         session['chat_history_display'] = chat_history_display
          session.modified = True
-         # Render index directly to show the error without redirect loop
          return render_template('index.html', chat_history=chat_history_display)
 
 
     # Add user message to display history
     chat_history_display.append({'type': 'user', 'text': user_input})
 
-    # --- Run the async logic by calling the imported function ---
-    # Use the imported logger
-    chat_processor.add_debug_log(f"User input received: {user_input}")
+    # --- Run the async logic ---
+    utils.add_debug_log(f"User input received: {user_input}")
     try:
-        # Call the imported process_prompt function
+        # Call the process_prompt function from chat_processor
         final_response_text, updated_gemini_history, internal_steps = asyncio.run(
             chat_processor.process_prompt(user_input, gemini_history_internal)
         )
-        chat_processor.add_debug_log(f"Processing complete. Final text preview: {(final_response_text[:100] + '...' if len(final_response_text) > 100 else final_response_text).replace('\n', ' ')}")
+        utils.add_debug_log(f"Processing complete. Final text preview: {(final_response_text[:250] + '...' if len(final_response_text) > 250 else final_response_text).replace('\n', ' ')}")
     except Exception as e:
-         # Catch potential errors during asyncio.run or if process_prompt raises unexpectedly
          error_trace = traceback.format_exc()
-         chat_processor.add_debug_log(f"Error running/calling process_prompt: {e}\n{error_trace}")
+         utils.add_debug_log(f"Error running/calling process_prompt: {e}\n{error_trace}")
          final_response_text = f"Critical error during processing: {e}"
-         updated_gemini_history = gemini_history_internal # Keep old history on critical failure
+         updated_gemini_history = gemini_history_internal # Keep old history
          internal_steps = [f"Critical error: {e}"]
 
 
@@ -132,51 +122,35 @@ def chat():
     # --- Store updated history back in session ---
     session['chat_history_display'] = chat_history_display
 
-    # --- Serialize history item by item with detailed logging ---
+    # --- Serialize history item by item ---
     serialized_history = []
     serialization_error_occurred = False
     for i, item in enumerate(updated_gemini_history):
         try:
-            # Use .model_dump() for serialization
-            item_dict = item.model_dump(mode='json') # Use mode='json' for session compatibility
+            item_dict = item.model_dump(mode='json')
             serialized_history.append(item_dict)
-        except AttributeError:
-             # Fallback for older Pydantic versions if model_dump doesn't exist
+        except AttributeError: # Fallback for older pydantic/sdk versions
              try:
-                  chat_processor.add_debug_log(f"AttributeError: .model_dump() not found for item #{i}. Trying .dict()...")
-                  item_dict = item.dict() # Older Pydantic method
+                  utils.add_debug_log(f"AttributeError: .model_dump() not found for item #{i}. Trying .dict()...")
+                  item_dict = item.dict()
                   serialized_history.append(item_dict)
              except Exception as e_dict:
                   serialization_error_occurred = True
                   error_trace = traceback.format_exc()
-                  chat_processor.add_debug_log(f"Error serializing history item #{i} to session (using .dict()): {e_dict}")
-                  chat_processor.add_debug_log(f"Problematic item type: {type(item)}")
-                  try: chat_processor.add_debug_log(f"Problematic item repr: {repr(item)}")
-                  except Exception as repr_e: chat_processor.add_debug_log(f"Could not get repr for problematic item: {repr_e}")
-                  chat_processor.add_debug_log(f"Serialization Traceback:\n{error_trace}")
+                  utils.add_debug_log(f"Error serializing history item #{i} (using .dict()): {e_dict}\n{error_trace}")
+                  # Log item details might be helpful here too
         except Exception as e:
             serialization_error_occurred = True
-            # Log the error and the problematic item
-            error_trace = traceback.format_exc() # Get traceback for context
-            chat_processor.add_debug_log(f"Error serializing history item #{i} to session: {e}")
-            chat_processor.add_debug_log(f"Problematic item type: {type(item)}")
-            # Try logging representation, might fail if object is complex
-            try:
-                 chat_processor.add_debug_log(f"Problematic item repr: {repr(item)}")
-            except Exception as repr_e:
-                 chat_processor.add_debug_log(f"Could not get repr for problematic item: {repr_e}")
-            chat_processor.add_debug_log(f"Serialization Traceback:\n{error_trace}")
-            # Option: Append a placeholder or skip the item
-            # For now, let's skip it to avoid breaking session saving entirely
-            # serialized_history.append({"error": "Serialization failed", "original_index": i})
+            error_trace = traceback.format_exc()
+            utils.add_debug_log(f"Error serializing history item #{i} to session: {e}\n{error_trace}")
+            # Log item details might be helpful here too
 
-    session['gemini_history_internal'] = serialized_history # Save the successfully serialized items
+    session['gemini_history_internal'] = serialized_history
     session.modified = True
 
-    # Add a message to display history if an error occurred during serialization
     if serialization_error_occurred:
          session['chat_history_display'].append({'type': 'error', 'text': "Error saving full chat history state. Some history may be lost."})
-         session.modified = True # Ensure session is marked modified again
+         session.modified = True
 
     return redirect(url_for('index'))
 
@@ -185,19 +159,18 @@ def reset():
     """Clears the chat history stored in the session."""
     session.pop('chat_history_display', None)
     session.pop('gemini_history_internal', None)
-    # Use the imported logger
-    chat_processor.add_debug_log("Chat history reset via /reset.")
+    utils.add_debug_log("Chat history reset via /reset.")
     return redirect(url_for('index'))
 
 @app.route('/debug', methods=['GET'])
 def debug():
-    """Displays the in-memory debug log from the chat_processor."""
+    """Displays the in-memory debug log from the utils module."""
     html = "<!DOCTYPE html><html><head><title>Debug Log</title>"
     html += "<style>body {font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 10px; font-size: 0.9em;}"
     html += "h1 { border-bottom: 1px solid #ccc; padding-bottom: 5px; } </style>"
     html += "</head><body><h1>Debug Log</h1>\n"
-    # Access the imported debug_log list directly
-    html += "\n".join(reversed(chat_processor.debug_log)) # Access list directly, reverse for newest first
+    # Access the log list via the utils module's getter
+    html += "\n".join(utils.get_debug_logs())
     html += "</body></html>"
     return html
 
@@ -207,14 +180,14 @@ if __name__ == '__main__':
     # Check the flags set during initialization
     if not gemini_ok:
          print("\n--- Flask app not starting due to Gemini client initialization failure. ---")
-    # Optionally, you could prevent startup if MCP fails too, depending on requirements
+    # Optionally add check for mcp_ok if MCP servers are essential for startup
     # elif not mcp_ok:
     #      print("\n--- Flask app not starting due to MCP server initialization failure. ---")
     else:
         print(f"\nFlask app starting. Access at http://127.0.0.1:5000")
-        # TARGET_DIRECTORY_PATH is defined in chat_processor
-        # print(f"MCP server target directory: {chat_processor.TARGET_DIRECTORY_PATH}")
+        # Target directory is now configured in config.py
+        # print(f"MCP server target directory: {config.FILESYSTEM_TARGET_DIRECTORY}")
         print(f"Ensure Node.js/npx is installed and in PATH.")
         print("Use Ctrl+C to stop the server.")
-        # debug=True enables auto-reloading and better error pages during development
         app.run(debug=True, host='127.0.0.1', port=5000)
+
