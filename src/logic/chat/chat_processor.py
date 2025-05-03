@@ -17,10 +17,10 @@ from google.genai import types as genai_types
 # --- Local Imports ---
 import src.logic.config as config
 import src.logic.utils as utils
-from src.logic.mcp_server import MCPServer
+from src.logic.mcp.mcp_server import MCPServer
 
 # Import the new helper module
-import src.logic.chat_loop.chat_helpers as chat_helpers
+import src.logic.chat.chat_helpers as chat_helpers
 
 # --- Global State (Initialized by app.py calling initializers) ---
 gemini_client: Optional[genai.Client] = None

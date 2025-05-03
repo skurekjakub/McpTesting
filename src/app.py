@@ -14,12 +14,12 @@ from flask import Flask, request, render_template, redirect, url_for, session, R
 from flask_socketio import SocketIO
 from flask_session import Session
 
-from .logic.chat_loop import chat_processor
-from .logic import initializers
+from .logic.chat import chat_processor
+from .logic.core import initializers
 from .logic import utils
 from config import app_config
 
-from . import socketio_handlers
+from .logic.core import socketio_handlers
 
 gemini_client_global: Optional[Any] = None
 mcp_servers_global: Optional[dict] = None

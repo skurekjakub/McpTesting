@@ -15,8 +15,8 @@ from google.genai import types as genai_types
 # Adjust relative paths if necessary, assuming chat_helpers is in the same 'logic' directory
 import src.logic.config as config
 import src.logic.utils as utils
-import src.logic.tool_handler as tool_handler
-from src.logic.mcp_server import MCPServer
+import src.logic.mcp.tool_handler as tool_handler
+from src.logic.mcp.mcp_server import MCPServer
 
 # --- Helper Functions (Extracted from chat_processor.py) ---
 
