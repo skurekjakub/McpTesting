@@ -11,8 +11,6 @@ from flask_socketio import emit
 from google.genai import types as genai_types
 
 from ..chat import chat_processor
-
-# Assuming chat_processor and utils are accessible or passed appropriately
 from .. import utils
 
 # Type hinting for Flask-SocketIO and asyncio loop
