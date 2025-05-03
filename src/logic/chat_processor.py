@@ -182,6 +182,23 @@ async def process_prompt(
                     utils.add_debug_log("No MCP tools being passed to Gemini.")
             # --- End Log ---
 
+            # --- Count Tokens Before API Call ---
+            try:
+                # Pass history using the 'contents' keyword argument and specify the model
+                token_count_response = gemini_client.models.count_tokens(
+                    model=config.GENERATION_GEMINI_MODEL, # Add model argument
+                    contents=current_turn_history
+                )
+                total_tokens = token_count_response.total_tokens
+                token_msg = f"Total tokens for next API call: {total_tokens}"
+                utils.add_debug_log(token_msg)
+                # Send token count to user via callback if available
+                if internal_step_callback:
+                    internal_step_callback(token_msg)
+            except Exception as count_e:
+                utils.add_debug_log(f"Warning: Failed to count tokens before API call: {count_e}")
+            # --- End Token Count ---
+
             # --- Call Gemini API ---
             response = gemini_client.models.generate_content(
                 model=config.GENERATION_GEMINI_MODEL,
