@@ -179,4 +179,4 @@ repomix-output.*
 
 memory.json
 
-flask_session
+.flask_session_files

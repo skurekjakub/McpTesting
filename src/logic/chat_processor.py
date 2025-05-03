@@ -5,9 +5,11 @@ initialization, logging, and tool handling.
 Supports multi-turn function calling within a single user request.
 Includes a system instruction to guide model behavior.
 """
+# MODIFIED: Import asyncio
+import asyncio
 import traceback
 import json # Import json for logging tool structure
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Callable
 
 # --- Google Generative AI SDK Imports ---
 from google import genai
@@ -43,8 +45,73 @@ After you have finished using all the tools required for the user's request, pro
 # --- END NEW ---
 
 
+# --- Helper Functions ---
+async def _get_available_tools(internal_step_callback: Optional[Callable[[str], None]] = None) -> List[genai_types.Tool]:
+    """Retrieves and combines tools from all configured MCP servers."""
+    all_gemini_tools = [] # Store the formatted tools for Gemini
+    if not mcp_servers:
+        if internal_step_callback:
+            internal_step_callback("Warning: No MCP servers initialized.")
+        return []
+
+    if internal_step_callback:
+        internal_step_callback("Listing tools from all MCP servers...")
+    utils.add_debug_log("Listing tools from all configured MCP servers...")
+
+    # --- MODIFIED: Correctly call list_tools method on each server instance ---
+    server_instances = list(mcp_servers.values())
+    server_ids = list(mcp_servers.keys())
+
+    # Use asyncio.gather to list tools from servers concurrently
+    list_tool_tasks = [server.list_tools() for server in server_instances]
+    # Gather results, return_exceptions=True prevents one failure from stopping all
+    tool_results = await asyncio.gather(*list_tool_tasks, return_exceptions=True)
+    # --- END MODIFIED ---
+
+    # Process results and format tools
+    for i, result in enumerate(tool_results):
+        server_id = server_ids[i]
+        server_instance = server_instances[i]
+
+        if isinstance(result, Exception):
+            error_msg = f"Error listing tools from server '{server_id}': {result}"
+            utils.add_debug_log(error_msg)
+            if internal_step_callback:
+                internal_step_callback(f"Error contacting tool server '{server_id}'.")
+        elif result: # result is the list of Tool objects from mcp_server.list_tools
+             # format_tools_for_gemini uses the tools cached during list_tools()
+             try:
+                 formatted_tools = server_instance.format_tools_for_gemini()
+                 all_gemini_tools.extend(formatted_tools)
+                 if internal_step_callback:
+                     internal_step_callback(f"Found {len(result)} tools from '{server_id}'.")
+             except Exception as format_e:
+                 error_msg = f"Error formatting tools from server '{server_id}': {format_e}"
+                 utils.add_debug_log(error_msg)
+                 if internal_step_callback:
+                     internal_step_callback(error_msg)
+
+        else: # Result was empty list or None
+             if internal_step_callback:
+                 internal_step_callback(f"No tools found from '{server_id}'.")
+             utils.add_debug_log(f"No tools listed or returned from server '{server_id}'.")
+
+
+    if not all_gemini_tools:
+         if internal_step_callback:
+             internal_step_callback("Warning: No tools available from any server.")
+         utils.add_debug_log("No tools available from any MCP server after listing and formatting.")
+
+    utils.add_debug_log(f"Total formatted tools collected for Gemini: {len(all_gemini_tools)}")
+    return all_gemini_tools
+
+
 # --- Core Async Prompt Processing Logic ---
-async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Content]) -> Tuple[str, List[genai_types.Content], List[str]]:
+async def process_prompt(
+    user_prompt: str,
+    gemini_history: List[genai_types.Content],
+    internal_step_callback: Optional[Callable[[str], None]] = None
+) -> Tuple[str, List[genai_types.Content]]:
     """
     Processes user prompt, discovers tools, orchestrates Gemini calls,
     and handles tool execution, allowing for multiple function calls per turn.
@@ -52,12 +119,12 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
     Args:
         user_prompt: The new prompt from the user.
         gemini_history: The existing internal conversation history (list of Content objects).
+        internal_step_callback: An optional function to call for emitting internal status updates.
 
     Returns:
         A tuple containing:
         - The final textual response for the user (or error message).
         - The updated internal Gemini conversation history.
-        - A list of internal step messages for display during this turn.
     """
     internal_steps = [] # Log steps for this specific turn
     final_text_response = "Error: Processing failed to produce a response." # Default error
@@ -65,50 +132,42 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
     # --- Pre-checks ---
     if not gemini_client:
         utils.add_debug_log("Error: process_prompt called but Gemini client is not initialized.")
-        return "Error: Chat processor not ready.", gemini_history, ["Initialization error."]
+        return "Error: Chat processor not ready.", gemini_history
     if not mcp_servers:
          utils.add_debug_log("Warning: process_prompt called but MCP servers dictionary is empty.")
          internal_steps.append("Warning: Tool servers may not be available.")
-
-    # try:
-    #     # Checks history length and summarizes if needed
-    #     processed_history, was_summarized, token_count = await history_manager.manage_history_tokens(
-    #         gemini_history=gemini_history,
-    #         summarization_model_instance=summarizer_client # Pass the pre-initialized summarizer client (optional)
-    #     )
-    #     # Update the history variable used for the rest of the function
-    #     gemini_history = processed_history
-    #     internal_steps.append(f"History check complete. Tokens: {token_count}. Summarized: {was_summarized}.")
-    #     if was_summarized:
-    #         utils.add_debug_log("History was summarized in this turn.")
-    #     # If summarization failed inside the manager, logs there indicate it.
-
-    # except Exception as hist_mgmt_e:
-    #     utils.add_debug_log(f"Critical error during history_manager call: {hist_mgmt_e}")
-    #     internal_steps.append(f"Warning: Error managing history: {hist_mgmt_e}")
-    #     # Proceed with potentially unmodified (and possibly too long) history
+         if internal_step_callback:
+             internal_step_callback("Warning: Tool servers may not be available.")
 
     # --- Prepare Initial History & Discover Tools ---
     try:
+         # --- MODIFIED: Remove detailed step logging ---
          user_part = genai_types.Part(text=user_prompt)
-         # Start a *copy* of the history for this turn's processing
          current_turn_history = list(gemini_history)
          current_turn_history.append(genai_types.Content(parts=[user_part], role="user"))
+
          internal_steps.append(f"Processing prompt: '{user_prompt}'")
+         if internal_step_callback:
+             internal_step_callback(f"Processing prompt: '{user_prompt}'")
 
          # Discover and format tools ONCE at the beginning of the turn
-         all_mcp_tools = await tool_handler.discover_and_format_tools(mcp_servers, internal_steps)
-         utils.add_debug_log(f"Discovered {len(all_mcp_tools)} MCP tools for this turn.")
+         all_mcp_tools = await _get_available_tools(internal_step_callback)
+         utils.add_debug_log(f"Discovered and formatted {len(all_mcp_tools)} tools for Gemini this turn.")
+         # --- END MODIFIED ---
 
     except Exception as e:
-         utils.add_debug_log(f"Error during initial setup: {e}")
-         return "Error preparing request.", gemini_history, ["Input processing error."]
+         # MODIFIED: Keep enhanced error logging
+         error_trace = traceback.format_exc()
+         utils.add_debug_log(f"Error during initial setup: {e}\n{error_trace}")
+         return "Error preparing request.", gemini_history
 
     # --- Main Processing Loop ---
     function_call_count = 0
     while function_call_count < MAX_FUNCTION_CALLS_PER_TURN:
         utils.add_debug_log(f"--- Starting API Call Loop Iteration {function_call_count + 1} ---")
         internal_steps.append(f"Sending request to Gemini (iteration {function_call_count + 1})...")
+        if internal_step_callback:
+            internal_step_callback(f"Sending request to Gemini (iteration {function_call_count + 1})...")
 
         try:
             # --- Log the tools being passed (optional, can be verbose) ---
@@ -127,12 +186,9 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
             response = gemini_client.models.generate_content(
                 model=config.GENERATION_GEMINI_MODEL,
                 contents=current_turn_history, # Send the latest history
-                # --- MODIFIED: Add system instruction ---
-                # --- END MODIFIED ---
                 config=genai_types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
                     temperature=1.1,
-                    # Pass the discovered tools on every iteration
                     tools=all_mcp_tools if all_mcp_tools else None
                 ),
             )
@@ -143,6 +199,8 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
                 feedback = response.prompt_feedback if response else "N/A"
                 utils.add_debug_log(f"Gemini response issue: No candidates. Feedback: {feedback}")
                 internal_steps.append(f"Warning: Gemini response had no candidates. Feedback: {feedback}")
+                if internal_step_callback:
+                    internal_step_callback(f"Warning: Gemini response had no candidates. Feedback: {feedback}")
                 final_text_response = "Error: Gemini returned no candidates."
                 if response and response.text:
                      final_text_response = response.text
@@ -158,6 +216,8 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
             else:
                  utils.add_debug_log("Warning: First candidate has no content. Cannot proceed.")
                  internal_steps.append("Warning: Gemini candidate had no content.")
+                 if internal_step_callback:
+                     internal_step_callback("Warning: Gemini candidate had no content.")
                  final_text_response = "Error: Gemini response lacked content."
                  break # Exit loop
 
@@ -173,6 +233,8 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
                 function_call_count += 1
                 utils.add_debug_log(f"Gemini requested function call #{function_call_count}: {function_call_requested.name}")
                 internal_steps.append(f"Gemini wants to use tool: {function_call_requested.name} (call {function_call_count}/{MAX_FUNCTION_CALLS_PER_TURN})")
+                if internal_step_callback:
+                    internal_step_callback(f"Gemini wants to use tool: {function_call_requested.name} (call {function_call_count}/{MAX_FUNCTION_CALLS_PER_TURN})")
 
                 # --- Execute Tool ---
                 function_response_part = await tool_handler.handle_function_call(
@@ -191,12 +253,16 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
                 # --- No Function Call - Extract Text and Exit Loop ---
                 utils.add_debug_log("No function call requested by Gemini. Assuming final text response.")
                 internal_steps.append("Gemini provided final response.")
+                if internal_step_callback:
+                    internal_step_callback("Gemini provided final response.")
                 if response.text:
                     final_text_response = response.text
                     utils.add_debug_log(f"Gemini final text preview: {(final_text_response[:config.LOG_PREVIEW_LEN] + '...' if len(final_text_response) > config.LOG_PREVIEW_LEN else final_text_response).replace('\n', ' ')}")
                 else:
                      utils.add_debug_log("Warning: No function call and no text found in final response.")
                      internal_steps.append("Warning: Gemini finished but provided no text.")
+                     if internal_step_callback:
+                         internal_step_callback("Warning: Gemini finished but provided no text.")
                      final_text_response = "Warning: Gemini finished processing but did not provide a textual response."
 
                 break # Exit the while loop
@@ -206,6 +272,8 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
             error_trace = traceback.format_exc()
             utils.add_debug_log(f"Unexpected error in API call loop: {e}\n{error_trace}")
             internal_steps.append(f"An unexpected error occurred during processing: {e}")
+            if internal_step_callback:
+                internal_step_callback(f"An unexpected error occurred during processing: {e}")
             final_text_response = f"An unexpected server error occurred: {e}"
             break # Exit loop on unexpected error
 
@@ -214,6 +282,8 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
     if function_call_count >= MAX_FUNCTION_CALLS_PER_TURN:
         utils.add_debug_log(f"Reached maximum function call limit ({MAX_FUNCTION_CALLS_PER_TURN}).")
         internal_steps.append(f"Warning: Reached maximum tool call limit ({MAX_FUNCTION_CALLS_PER_TURN}). The response might be incomplete.")
+        if internal_step_callback:
+            internal_step_callback(f"Warning: Reached maximum tool call limit ({MAX_FUNCTION_CALLS_PER_TURN}). The response might be incomplete.")
         last_response_text = "Error: Reached max tool call limit."
         if 'response' in locals() and response and response.text:
              last_response_text = response.text + f"\n\n(Warning: Reached maximum tool call limit of {MAX_FUNCTION_CALLS_PER_TURN})"
@@ -221,5 +291,6 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
 
 
     # --- Return Results ---
-    return final_text_response, current_turn_history, internal_steps
+    # MODIFIED: Return only two values as expected by the caller in app.py
+    return final_text_response, current_turn_history
 

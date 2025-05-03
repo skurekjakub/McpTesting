@@ -11,9 +11,7 @@ import sys
 import traceback
 import json
 from typing import List
-# --- MODIFIED: Import threading ---
 import threading
-# --- END MODIFIED ---
 
 from flask import Flask, request, render_template, redirect, url_for, session
 from flask_socketio import SocketIO, emit
@@ -29,12 +27,8 @@ gemini_client_global = None
 mcp_servers_global = None
 summarizer_client_global = None
 
-# --- MODIFIED: Use threading async_mode for SocketIO --- 
 socketio = SocketIO(manage_session=False, async_mode='threading')
-# --- END MODIFIED ---
 
-# --- MODIFIED: Global asyncio loop for the background thread ---
-# Create a dedicated event loop for background asyncio tasks
 background_asyncio_loop = asyncio.new_event_loop()
 
 def run_background_loop():
@@ -47,11 +41,8 @@ def run_background_loop():
         background_asyncio_loop.close()
         utils.add_debug_log("Background asyncio event loop stopped.")
 
-# Start the background event loop thread when the module loads
 background_thread = threading.Thread(target=run_background_loop, daemon=True)
 background_thread.start()
-# --- END MODIFIED ---
-
 
 def create_app(config_object=app_config):
     """Application Factory Function"""
@@ -77,7 +68,6 @@ def create_app(config_object=app_config):
     if not mcp_ok: print("\n--- WARNING: MCP servers dictionary is empty. ---")
 
     with app.app_context():
-        # --- Flask Routes (index, reset, debug remain the same) ---
         @app.route('/', methods=['GET'])
         def index():
             if 'chat_history_display' not in session: session['chat_history_display'] = []
@@ -103,7 +93,6 @@ def create_app(config_object=app_config):
             html += "</body></html>"
             return html
 
-    # --- SocketIO Event Handlers ---
     @socketio.on('connect')
     def handle_connect():
         utils.add_debug_log(f"Client connected: {request.sid}")
@@ -114,7 +103,6 @@ def create_app(config_object=app_config):
 
     @socketio.on('send_message')
     def handle_send_message(data):
-        """Handles receiving a message, runs async processing in a separate thread."""
         user_input = data.get('prompt', '').strip()
         if not user_input:
             emit('error', {'message': 'Empty prompt received.'}, room=request.sid)
@@ -123,14 +111,12 @@ def create_app(config_object=app_config):
         utils.add_debug_log(f"Received prompt from {request.sid}: '{user_input}'")
         emit('new_message', {'type': 'user', 'text': user_input}, room=request.sid)
 
-        # --- Session handling remains the same ---
         chat_history_display = session.get('chat_history_display', [])
         gemini_history_internal_raw = session.get('gemini_history_internal', [])
         chat_history_display.append({'type': 'user', 'text': user_input})
         session['chat_history_display'] = chat_history_display
         session.modified = True
 
-        # --- Initialization checks remain the same ---
         display_history_error = None
         if not chat_processor.gemini_client: display_history_error = "Chat client not initialized."
         elif not chat_processor.mcp_servers: display_history_error = "Tool servers not initialized."
@@ -142,11 +128,9 @@ def create_app(config_object=app_config):
             session.modified = True
             return
 
-        # --- History deserialization remains the same ---
         try:
             gemini_history_internal = [genai_types.Content.model_validate(item) for item in gemini_history_internal_raw]
         except Exception as e:
-            # ... (error handling remains the same) ...
             error_trace = traceback.format_exc()
             utils.add_debug_log(f"Error deserializing history from session for {request.sid}: {e}\n{error_trace}")
             emit('new_message', {'type': 'error', 'text': f"Error loading chat history: {e}. History reset."}, room=request.sid)
@@ -155,29 +139,32 @@ def create_app(config_object=app_config):
             session.modified = True
             return
 
-        # --- MODIFIED: Run the asyncio task in the background thread's loop ---
+        client_sid = request.sid
+
+        def emit_internal_step(message: str):
+            """Callback function to emit internal steps via SocketIO."""
+            try:
+                socketio.emit('new_message', {'type': 'internal', 'text': message}, room=client_sid)
+            except Exception as e:
+                utils.add_debug_log(f"Error emitting internal step for {client_sid}: {e}")
+
         async def process_chat_task():
-            """The actual async task logic (content is the same)."""
-            # Need to access session within the task, Flask-SocketIO usually handles this.
-            # If session access fails here, we might need to pass data explicitly.
-            current_display_history = session.get('chat_history_display', []) # Get fresh copy for task
+            current_display_history = list(session.get('chat_history_display', []))
 
             try:
-                utils.add_debug_log(f"Starting process_prompt for {request.sid} in background thread")
-                # Emit works across threads because SocketIO manages it
-                socketio.emit('status_update', {'message': 'Processing...'}, room=request.sid)
+                utils.add_debug_log(f"Starting process_prompt for {client_sid} in background thread")
+                socketio.emit('status_update', {'message': 'Processing...'}, room=client_sid)
 
-                final_response_text, updated_gemini_history, internal_steps = await chat_processor.process_prompt(
-                    user_input, gemini_history_internal
+                final_response_text, updated_gemini_history = await chat_processor.process_prompt(
+                    user_input,
+                    gemini_history_internal,
+                    internal_step_callback=emit_internal_step
                 )
-                utils.add_debug_log(f"Processing complete for {request.sid}. Final text preview: {(final_response_text[:50] + '...').replace('\n', ' ')}")
 
-                for step in internal_steps:
-                    socketio.emit('new_message', {'type': 'internal', 'text': step}, room=request.sid)
-                    current_display_history.append({'type': 'internal', 'text': step})
+                utils.add_debug_log(f"Processing complete for {client_sid}. Final text preview: {(final_response_text[:50] + '...').replace('\n', ' ')}")
 
                 response_type = 'error' if final_response_text.lower().startswith(("error:", "warning:")) else 'model'
-                socketio.emit('new_message', {'type': response_type, 'text': final_response_text}, room=request.sid)
+                socketio.emit('new_message', {'type': response_type, 'text': final_response_text}, room=client_sid)
                 current_display_history.append({'type': response_type, 'text': final_response_text})
 
                 serialized_history = []
@@ -189,36 +176,28 @@ def create_app(config_object=app_config):
                     except Exception as e_ser:
                         serialization_error_occurred = True
                         error_trace = traceback.format_exc()
-                        utils.add_debug_log(f"Error serializing history item #{i} for {request.sid}: {e_ser}\n{error_trace}")
+                        utils.add_debug_log(f"Error serializing history item #{i} for {client_sid}: {e_ser}\n{error_trace}")
 
-                # --- Update session from the background task ---
-                # This relies on Flask-Session and Flask-SocketIO's integration.
-                # If issues arise, consider passing results back to the main thread/context.
                 session['gemini_history_internal'] = serialized_history
                 if serialization_error_occurred:
-                    socketio.emit('new_message', {'type': 'error', 'text': "Error saving full chat history state."}, room=request.sid)
+                    socketio.emit('new_message', {'type': 'error', 'text': "Error saving full chat history state."}, room=client_sid)
                     current_display_history.append({'type': 'error', 'text': "Error saving full chat history state."})
 
                 session['chat_history_display'] = current_display_history
                 session.modified = True
-                utils.add_debug_log(f"Session updated for {request.sid} from background task.")
-
+                utils.add_debug_log(f"Session updated for {client_sid} from background task.")
 
             except Exception as e:
                 error_trace = traceback.format_exc()
-                utils.add_debug_log(f"Critical error in process_chat_task for {request.sid}: {e}\n{error_trace}")
-                socketio.emit('new_message', {'type': 'error', 'text': f"Critical server error during processing: {e}"}, room=request.sid)
+                utils.add_debug_log(f"Critical error in process_chat_task for {client_sid}: {e}\n{error_trace}")
+                socketio.emit('new_message', {'type': 'error', 'text': f"Critical server error during processing: {e}"}, room=client_sid)
                 current_display_history.append({'type': 'error', 'text': f"Critical server error: {e}"})
                 session['chat_history_display'] = current_display_history
                 session.modified = True
             finally:
-                socketio.emit('status_update', {'message': 'Idle'}, room=request.sid)
+                socketio.emit('status_update', {'message': 'Idle'}, room=client_sid)
 
-        # Schedule the coroutine on the background loop
-        utils.add_debug_log(f"Scheduling process_chat_task for {request.sid} on background loop.")
+        utils.add_debug_log(f"Scheduling process_chat_task for {client_sid} on background loop.")
         asyncio.run_coroutine_threadsafe(process_chat_task(), background_asyncio_loop)
-        # --- END MODIFIED ---
 
     return app
-
-# --- Remove the old if __name__ == '__main__': block ---
