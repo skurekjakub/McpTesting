@@ -10,10 +10,8 @@ from flask import request, session
 from flask_socketio import emit
 from google.genai import types as genai_types
 
-from .logic.chat_loop import chat_processor
-
-# Assuming chat_processor and utils are accessible or passed appropriately
-from .logic import utils
+from ..chat import chat_processor
+from .. import utils
 
 # Type hinting for Flask-SocketIO and asyncio loop
 if TYPE_CHECKING:
