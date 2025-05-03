@@ -40,7 +40,6 @@ except FileNotFoundError:
 except Exception as e:
     utils.add_debug_log(f"Error loading system instruction from {SYSTEM_INSTRUCTION_FILE}: {e}. Using default.")
 
-
 # --- Core Async Prompt Processing Logic ---
 async def process_prompt(
     user_prompt: str,

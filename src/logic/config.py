@@ -5,8 +5,7 @@ Loads settings from config.json and environment variables.
 """
 import os
 import json
-import sys
-from typing import List, Union # Add Union for type hinting
+from typing import List
 
 # --- Default Values (used if not found in JSON or ENV) ---
 # Default is now an empty list, forcing user to configure
@@ -17,14 +16,15 @@ DEFAULT_GENERATION_MODEL_FALLBACK = "gemini-1.5-flash"
 DEFAULT_SUMMARIZATION_MODEL_FALLBACK = "gemini-1.5-flash" # Default to the same as generation model
 DEFAULT_MAX_DEBUG_LOG_SIZE = 1500
 DEFAULT_LOG_PREVIEW_LEN = 250
-CONFIG_FILENAME = "config.json" # Name of the configuration file
+CONFIG_FILENAME = "config.json"
+BOT_CONFIG_DIR = "bot_config"
 
 # --- Load Configuration from JSON ---
 config_data = {}
 config_load_error = None
-# Assume config.json is in the same directory as this config.py file
-# In a real app, you might want a more robust way to find the config file
-config_file_path = os.path.join(os.path.dirname(__file__), CONFIG_FILENAME)
+# Construct the path to config.json inside the bot_config directory at the project root
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__))) # Go up two levels from src/logic
+config_file_path = os.path.join(project_root, BOT_CONFIG_DIR, CONFIG_FILENAME)
 
 try:
     print(f"Attempting to load configuration from: {config_file_path}")
@@ -159,4 +159,3 @@ if not config_valid:
     # sys.exit("Exiting due to invalid configuration.")
 else:
     print("--- Configuration validation passed. ---")
-
