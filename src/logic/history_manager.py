@@ -169,7 +169,9 @@ async def manage_history_tokens(
     gemini_history: List[genai_types.Content],
     # Allow providing a separate instance for summarization, otherwise fallback to creating one
     main_model_instance: genai.Client,
-    summarization_model_instance: Optional[genai.Client] = None # Add the missing parameter
+    summarization_model_instance: Optional[
+        genai.Client
+    ] = None,  # Add the missing parameter
 ) -> Tuple[List[genai_types.Content], bool, int]:
     """
     Checks history token count and triggers summarization if needed.
