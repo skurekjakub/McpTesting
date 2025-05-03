@@ -176,3 +176,4 @@ config.json
 repomix-output.*
 memory.json
 .flask_session_files
+chroma_db

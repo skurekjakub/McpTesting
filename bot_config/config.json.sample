@@ -5,10 +5,13 @@
     "D:/another/project/path",
     "/path/on/linux/or/mac"
   ],
-  "enable_memory_server": true,
+  "enable_memory_server": false,
+  "enable_chroma_server": true,
+  "chroma_path": "./chroma_db",
+  "chroma_collection_name": "chat_history",
   "default_gemini_model": "gemini-1.5-flash",
   "generation_gemini_model": "gemini-1.5-flash",
-  "summarization_gemini_model": "gemini-1.5-flash"
+  "summarization_gemini_model": "gemini-1.5-flash",
   "max_debug_log_size": 1500,
   "log_preview_len": 250
 }

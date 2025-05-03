@@ -5,6 +5,7 @@ Reads configuration from the config module.
 """
 
 import traceback
+import os
 from typing import Dict, Optional
 
 # --- Google Generative AI SDK Imports ---
@@ -112,7 +113,7 @@ def initialize_mcp_servers() -> Dict[str, MCPServer]:
             "Skipping 'filesystem' MCPServer initialization: No valid target directories configured."
         )
 
-    # --- NEW: Memory Server ---
+    # --- Memory Server ---
     if config.ENABLE_MEMORY_SERVER:  # Check the flag from config
         try:
             utils.add_debug_log("Attempting to initialize 'memory' MCPServer...")
@@ -140,7 +141,49 @@ def initialize_mcp_servers() -> Dict[str, MCPServer]:
         utils.add_debug_log(
             "Skipping 'memory' MCPServer initialization: 'enable_memory_server' is false in config."
         )
-    # --- END NEW ---
+
+    # --- ChromaDB Server ---
+    if config.ENABLE_CHROMA_SERVER:
+        try:
+            utils.add_debug_log("Attempting to initialize 'chroma' MCPServer...")
+            # Use the command and arguments provided by the user
+            chroma_command = "uvx"  # Or "uv" if uvx was a typo
+
+            # Resolve the relative path from the project root for the data directory
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            abs_chroma_path = os.path.abspath(os.path.join(project_root, config.CHROMA_PATH))
+
+            chroma_args = [
+                "chroma-mcp",
+                "--client-type",
+                "persistent",
+                "--data-dir",
+                abs_chroma_path,
+                # Add collection name if the server accepts it as an arg, otherwise it might be implicit or handled by tools
+                # "--collection-name", config.CHROMA_COLLECTION_NAME  # Example if needed
+            ]
+
+            # Environment variables might not be needed if args are used
+            chroma_env = {}
+
+            chroma_params = StdioServerParameters(
+                command=chroma_command,
+                args=chroma_args,
+                env=chroma_env,  # Pass empty env unless specific ones are needed
+            )
+            mcp_servers["chroma"] = MCPServer(server_id="chroma", params=chroma_params)
+            utils.add_debug_log(
+                f"Initialized 'chroma' MCPServer instance using command '{chroma_command}'. Path: {abs_chroma_path}, Collection: {config.CHROMA_COLLECTION_NAME}"
+            )
+        except Exception as e:
+            print(f"ERROR: Failed to initialize 'chroma' MCPServer: {e}")
+            utils.add_debug_log(
+                f"ERROR: Failed to initialize 'chroma' MCPServer: {e}\n{traceback.format_exc()}"
+            )
+    else:
+        utils.add_debug_log(
+            "Skipping 'chroma' MCPServer initialization: 'enable_chroma_server' is false in config."
+        )
 
     # --- Add Initialization for Other Servers Here ---
     # (Example placeholder remains)

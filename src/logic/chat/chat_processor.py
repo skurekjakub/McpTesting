@@ -124,17 +124,7 @@ async def process_prompt(
         # Log tools only on the first iteration
         if function_call_count == 0:
             if all_mcp_tools:
-                try:
-                    tools_log_repr = [
-                        tool.model_dump(mode="json") for tool in all_mcp_tools
-                    ]
-                    utils.add_debug_log(
-                        f"Tools passed to Gemini:\n{json.dumps(tools_log_repr, indent=2)}"
-                    )
-                except Exception as log_e:
-                    utils.add_debug_log(
-                        f"Could not serialize tools list for logging: {log_e}"
-                    )
+                utils.add_debug_log(f"Passing {len(all_mcp_tools)} tools to Gemini.")
             else:
                 utils.add_debug_log("No MCP tools being passed to Gemini.")
 

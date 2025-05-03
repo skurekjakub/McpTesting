@@ -34,7 +34,7 @@ def _log_debug(message: str):
 # --- Helper: Clean Schema ---
 def clean_schema_for_gemini(schema: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Recursively cleans schema properties not allowed by Gemini FunctionDeclaration
-    and removes keys with None values.
+    and removes keys with None values or 'type: null'.
     """
     if not isinstance(schema, dict):
         return schema  # Return non-dict items as is
@@ -50,6 +50,13 @@ def clean_schema_for_gemini(schema: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
         # Skip keys with None value
         if value is None:
+            continue
+
+        # Skip 'type: null' as it's invalid for Gemini
+        if key == "type" and value == "null":
+            _log_debug(
+                f"Skipping invalid 'type: null' in schema cleaning for key '{key}' in parent schema: {schema.get('title', 'N/A')}"
+            )
             continue
 
         # Recursively clean nested structures
