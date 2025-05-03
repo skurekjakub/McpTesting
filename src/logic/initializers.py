@@ -4,7 +4,6 @@ Initialization functions for Gemini client and MCP servers.
 Reads configuration from the config module.
 """
 
-import os
 import traceback
 from typing import Dict, Optional
 

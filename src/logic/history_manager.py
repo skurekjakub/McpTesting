@@ -1,7 +1,6 @@
 # history_manager.py
 
 import traceback
-import asyncio
 from typing import List, Tuple, Optional
 
 # --- Google Generative AI SDK Imports ---
@@ -169,7 +168,8 @@ Concise Summary:"""
 async def manage_history_tokens(
     gemini_history: List[genai_types.Content],
     # Allow providing a separate instance for summarization, otherwise fallback to creating one
-    summarization_model_instance: Optional[genai.Client] = None,
+    main_model_instance: genai.Client,
+    summarization_model_instance: Optional[genai.Client] = None # Add the missing parameter
 ) -> Tuple[List[genai_types.Content], bool, int]:
     """
     Checks history token count and triggers summarization if needed.
