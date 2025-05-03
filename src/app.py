@@ -13,7 +13,7 @@ from flask import Flask, request, render_template, redirect, url_for, session, R
 from flask_socketio import SocketIO
 from flask_session import Session
 
-from .logic import chat_processor
+from .logic.chat_loop import chat_processor
 from .logic import initializers
 from .logic import utils
 from config import app_config
