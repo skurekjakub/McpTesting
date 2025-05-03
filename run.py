@@ -21,7 +21,7 @@ if __name__ == "__main__":
     print(
         f"Using server-side sessions (type: {app.config.get('SESSION_TYPE', 'filesystem')})."
     )
-    print(f"Ensure Node.js/npx is installed and in PATH if needed by tools.")
+    print("Ensure Node.js/npx is installed and in PATH if needed by tools.")
     print("Use Ctrl+C to stop the server.")
 
     # Use gevent for async operations (Flask-SocketIO will detect it)
