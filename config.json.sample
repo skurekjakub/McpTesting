@@ -8,6 +8,7 @@
   "enable_memory_server": true,
   "default_gemini_model": "gemini-1.5-flash",
   "generation_gemini_model": "gemini-1.5-flash",
+  "summarization_gemini_model": "gemini-1.5-flash"
   "max_debug_log_size": 1500,
   "log_preview_len": 250
 }

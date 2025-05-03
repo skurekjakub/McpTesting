@@ -10,9 +10,9 @@ from typing import Dict, Any, List, Tuple, Optional
 from google.genai import types as genai_types
 
 # --- Local Imports ---
-import utils         # Logging utilities
-import config        # Configuration constants (e.g., log preview length)
-from mcp_server import MCPServer # The class managing individual servers
+import src.logic.utils as utils         # Logging utilities
+import src.logic.config as config        # Configuration constants (e.g., log preview length)
+from src.logic.mcp_server import MCPServer # The class managing individual servers
 
 # --- Tool Discovery and Formatting ---
 

@@ -14,9 +14,9 @@ from google import genai
 from mcp import StdioServerParameters
 
 # --- Local Imports ---
-import config  # Import configuration constants and variables
-import utils   # Import logging utilities
-from mcp_server import MCPServer # Import the MCPServer class
+import src.logic.config as config  # Import configuration constants and variables
+import src.logic.utils as utils   # Import logging utilities
+from src.logic.mcp_server import MCPServer # Import the MCPServer class
 
 # --- Gemini Client Initialization ---
 def initialize_gemini_client() -> Optional[genai.Client]:

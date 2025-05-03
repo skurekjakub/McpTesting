@@ -5,9 +5,6 @@ initialization, logging, and tool handling.
 Supports multi-turn function calling within a single user request.
 Includes a system instruction to guide model behavior.
 """
-import asyncio
-import os
-import sys
 import traceback
 import json # Import json for logging tool structure
 from typing import Dict, Any, List, Tuple, Optional
@@ -18,24 +15,29 @@ from google.genai import types as genai_types
 # from google.generativeai.types import generation_types # Import specific exceptions if needed
 
 # --- Local Imports ---
-import config                # Configuration constants
-import utils                 # Logging utilities
-import initializers          # Initialization functions
-import tool_handler          # Tool discovery, formatting, execution
-from mcp_server import MCPServer # Type hint for mcp_servers dictionary
+import src.logic.config as config                # Configuration constants
+import src.logic.utils as utils                 # Logging utilities
+import src.logic.tool_handler as tool_handler          # Tool discovery, formatting, execution
+import src.logic.history_manager as history_manager       # History management
+from src.logic.mcp_server import MCPServer # Type hint for mcp_servers dictionary
 
 # --- Global State (Initialized by app.py calling initializers) ---
 # These are populated by functions in initializers.py
 gemini_client: Optional[genai.Client] = None
+summarizer_client: Optional[genai.Client] = None
 mcp_servers: Dict[str, MCPServer] = {}
 
 # --- Constants ---
-MAX_FUNCTION_CALLS_PER_TURN = 5 # Safeguard against infinite loops
+MAX_FUNCTION_CALLS_PER_TURN = 25 # Safeguard against infinite loops
 
 # --- NEW: System Instruction ---
 SYSTEM_INSTRUCTION = """You are a helpful assistant with access to tools for interacting with a local filesystem and a knowledge graph API.
 
-You can use these tools sequentially within a single user turn to fulfill complex requests. If a request requires multiple steps (like reading one file to find the name of another file to read), make the necessary function calls one after another.
+You can use these tools sequentially within a single user turn to fulfill complex requests. If a request requires multiple steps (like reading one file to find the name of another file to read), make the necessary function calls one after another. When your are done querying tools, answer the user with a comprehensive response.
+
+After each query, update the 'session_summary' field in the knowledge graph. This field should contain a summary of the last 10 topics discussed, ordered from most recent to least recent. Compress the summaries by removing specific details but keep things like directory and file names that you worked with so that you can get quickly up to date. Each topic should be no longer than 500 characters though. If the history exceeds 10 topics, compress the 3 oldest ones into a single summary. Number each topic in the summary for clarity with 1 indicating the most recent.
+
+When you don't have enough context to understand the current user query, refer to the 'session_summary' field to understand the ongoing conversation. Use the 'search_nodes' function to search for the field.
 
 After you have finished using all the tools required for the user's request, provide a final, comprehensive answer synthesizing the information gathered. Please use Markdown formatting (like code blocks, lists, etc.) in your final response where appropriate."""
 # --- END NEW ---
@@ -67,6 +69,24 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
     if not mcp_servers:
          utils.add_debug_log("Warning: process_prompt called but MCP servers dictionary is empty.")
          internal_steps.append("Warning: Tool servers may not be available.")
+
+    # try:
+    #     # Checks history length and summarizes if needed
+    #     processed_history, was_summarized, token_count = await history_manager.manage_history_tokens(
+    #         gemini_history=gemini_history,
+    #         summarization_model_instance=summarizer_client # Pass the pre-initialized summarizer client (optional)
+    #     )
+    #     # Update the history variable used for the rest of the function
+    #     gemini_history = processed_history
+    #     internal_steps.append(f"History check complete. Tokens: {token_count}. Summarized: {was_summarized}.")
+    #     if was_summarized:
+    #         utils.add_debug_log("History was summarized in this turn.")
+    #     # If summarization failed inside the manager, logs there indicate it.
+
+    # except Exception as hist_mgmt_e:
+    #     utils.add_debug_log(f"Critical error during history_manager call: {hist_mgmt_e}")
+    #     internal_steps.append(f"Warning: Error managing history: {hist_mgmt_e}")
+    #     # Proceed with potentially unmodified (and possibly too long) history
 
     # --- Prepare Initial History & Discover Tools ---
     try:
@@ -111,7 +131,7 @@ async def process_prompt(user_prompt: str, gemini_history: List[genai_types.Cont
                 # --- END MODIFIED ---
                 config=genai_types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
-                    temperature=0.7,
+                    temperature=1.1,
                     # Pass the discovered tools on every iteration
                     tools=all_mcp_tools if all_mcp_tools else None
                 ),
