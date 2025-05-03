@@ -1,0 +1,246 @@
+/* Dark Theme Base */
+body {
+    font-family: sans-serif;
+    margin: 20px;
+    background-color: #1e1e1e; /* Dark background */
+    color: #e0e0e0; /* Light text */
+}
+
+h1 {
+    color: #f8f9fa; /* Lighter heading */
+    border-bottom: 1px solid #444; /* Darker border */
+    padding-bottom: 10px;
+    text-align: center; /* Center the title */
+}
+
+.chat-container {
+    max-width: 800px; /* Limit width */
+    margin: 0 auto; /* Center container */
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 100px); /* Adjust height based on title/input */
+}
+
+
+.chat-history {
+    background-color: #2a2a2a; /* Slightly lighter dark background */
+    border: 1px solid #444; /* Darker border */
+    padding: 15px;
+    flex-grow: 1; /* Take available space */
+    overflow-y: scroll; /* Keep scroll enabled */
+    margin-bottom: 15px;
+    border-radius: 5px;
+}
+
+.message {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 5px;
+    max-width: 85%; /* Slightly wider max width */
+    word-wrap: break-word;
+    line-height: 1.4;
+    display: flex; /* Use flex for sender/text alignment */
+    flex-direction: column; /* Stack sender and text */
+}
+
+.message .sender {
+    font-weight: bold;
+    margin-bottom: 4px; /* Space between sender and text */
+    font-size: 0.9em;
+    color: #aaa; /* Dimmer sender color */
+}
+
+.message .text {
+    white-space: pre-wrap; /* Wrap text and preserve whitespace */
+}
+
+
+/* Message Type Styling */
+.user { /* Matches JS type 'user' */
+    background-color: #0a4a7e; /* Darker blue for user */
+    color: #ffffff;
+    margin-left: auto; /* Align user messages to the right */
+    align-items: flex-end; /* Align sender/text to the right */
+}
+.user .sender { color: #cceeff; } /* Lighter sender for user */
+
+.model { /* Matches JS type 'model' */
+    background-color: #3a3a3a; /* Dark grey for model */
+    color: #e0e0e0;
+    margin-right: auto; /* Ensure model messages stay left */
+    align-items: flex-start; /* Align sender/text to the left */
+}
+.model .sender { color: #dddddd; } /* Lighter sender for model */
+
+/* --- Styling for Markdown elements within model messages --- */
+.model .text > div { /* Target the div created by JS to hold markdown content */
+     margin-top: 0; /* Remove extra margin if sender provides enough */
+}
+
+/* Inline code */
+.model code:not(pre code) { /* Style inline code differently from code blocks */
+    background-color: #222; /* Slightly different dark */
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 0.9em;
+    border: 1px solid #444;
+}
+
+/* Code blocks */
+.model pre {
+    background-color: #1c1c1c; /* Very dark background for code blocks */
+    padding: 12px;
+    border-radius: 4px;
+    overflow-x: auto; /* Allow horizontal scroll for long code blocks */
+    border: 1px solid #444;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+.model pre code { /* Target code specifically within pre */
+    background-color: transparent; /* Inherit pre background */
+    padding: 0;
+    border: none;
+    font-family: monospace; /* Ensure monospace */
+    font-size: 0.9em; /* Consistent font size */
+    white-space: pre; /* Preserve whitespace in code block */
+    color: #abb2bf; /* Default text color from atom-one-dark theme */
+}
+/* Override highlight.js default background if needed, but atom-one-dark should match pre */
+.model pre code.hljs {
+     background: transparent !important;
+     padding: 0 !important; /* Override hljs padding */
+}
+
+.model ul, .model ol {
+     padding-left: 25px; /* More indentation for lists */
+     margin-top: 5px;
+     margin-bottom: 5px;
+}
+ .model li {
+     margin-bottom: 4px; /* Space between list items */
+ }
+
+.model blockquote {
+    border-left: 3px solid #555;
+    padding-left: 15px; /* More padding */
+    margin-left: 0;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    color: #aaa;
+    font-style: italic;
+}
+.model table {
+    border-collapse: collapse;
+    margin: 10px 0;
+    width: auto; /* Don't force full width */
+    border: 1px solid #555;
+}
+.model th, .model td {
+    border: 1px solid #555;
+    padding: 6px 10px;
+    text-align: left;
+}
+ .model th {
+     background-color: #333;
+     font-weight: bold;
+ }
+ /* --- End Markdown Styling --- */
+
+
+.error { /* Matches JS type 'error' */
+    background-color: #5e2a2e; /* Dark red for errors */
+    color: #f8d7da;
+    margin-right: auto;
+    align-items: flex-start;
+}
+.error .sender { color: #ffcccc; }
+
+ .internal { /* Matches JS type 'internal' */
+    background-color: #4d431f; /* Dark yellow for internal steps */
+    color: #fff3cd;
+    font-size: 0.8em;
+    font-style: italic;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 90%;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    border: 1px dashed #665d3e;
+    align-items: center; /* Center sender/text */
+    text-align: center;
+}
+.internal .sender { color: #ffeecc; }
+
+
+/* Input Area Styling */
+.chat-input {
+    display: flex;
+    flex-direction: column; /* Stack form and controls */
+}
+
+.chat-input form {
+    display: flex;
+    margin-bottom: 10px; /* Space between input and controls */
+}
+
+input[type="text"] {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #555;
+    border-radius: 3px;
+    margin-right: 10px;
+    background-color: #3a3a3a;
+    color: #e0e0e0;
+    font-size: 1em;
+}
+input[type="text"]::placeholder {
+     color: #888;
+}
+
+
+button {
+    padding: 10px 15px;
+    background-color: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.2s ease;
+}
+button:hover {
+    background-color: #0b5ed7;
+}
+
+/* Controls (Reset button, Status) */
+.controls {
+    display: flex;
+    justify-content: space-between; /* Space out items */
+    align-items: center;
+    font-size: 0.9em;
+}
+
+.reset-button { /* Style the reset link like a button */
+    display: inline-block;
+    padding: 5px 10px;
+    background-color: #495057;
+    color: white;
+    text-decoration: none;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+}
+.reset-button:hover {
+    background-color: #5a6268;
+}
+
+/* Status Indicator */
+#status-indicator {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: bold;
+}
+.status-idle { background-color: #444; color: #ccc; }
+.status-connected { background-color: #198754; color: white; } /* Green */
+.status-disconnected { background-color: #dc3545; color: white; } /* Red */
+.status-processing { background-color: #ffc107; color: #333; } /* Yellow */

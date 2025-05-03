@@ -172,11 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-
 config.json
-
 repomix-output.*
-
 memory.json
-
-flask_session
+.flask_session_files
