@@ -8,12 +8,56 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "chromadb",
+    "sentence-transformers",
+    "annotated-types",
+    "anyio",
+    "blinker",
+    "cachelib",
+    "cachetools",
+    "certifi",
+    "click",
+    "Flask",
+    "Flask-Session",
+    "Flask-SocketIO",
+    "gevent",
+    "google-ai-generativelanguage",
+    "google-api-core",
+    "google-auth",
+    "google-generativeai",
+    "googleapis-common-protos",
+    "grpcio",
+    "grpcio-status",
+    "h11",
+    "httpcore",
+    "httpx",
+    "idna",
+    "itsdangerous",
+    "Jinja2",
+    "MarkupSafe",
+    "mcp",
+    "msgspec",
+    "proto-plus",
+    "protobuf",
+    "pyasn1",
+    "pyasn1_modules",
+    "pydantic",
+    "pydantic_core",
+    "rsa",
+    "sniffio",
+    "typing_extensions",
+    "Werkzeug"
 ]
-
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+packages = [
+    { include = "mcpbro", from = "src" },
+]
 
 [tool.poetry.group.dev.dependencies]
 poethepoet = "^0.34.0"
