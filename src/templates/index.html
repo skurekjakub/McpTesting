@@ -3,328 +3,179 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCP Filesystem Chat (Dark)</title>
+    <title>MCPBro Chat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <style>
-        /* Dark Theme Base */
-        body {
-            font-family: sans-serif;
-            margin: 20px;
-            background-color: #1e1e1e; /* Dark background */
-            color: #e0e0e0; /* Light text */
-        }
-
-        h1 {
-            color: #f8f9fa; /* Lighter heading */
-            border-bottom: 1px solid #444; /* Darker border */
-            padding-bottom: 10px;
-        }
-
-        .chatbox {
-            background-color: #2a2a2a; /* Slightly lighter dark background */
-            border: 1px solid #444; /* Darker border */
-            padding: 15px;
-            height: 60vh;
-            overflow-y: scroll; /* Keep scroll enabled */
-            margin-bottom: 15px;
-            border-radius: 5px;
-        }
-
-        .message {
-            margin-bottom: 10px;
-            padding: 8px 12px;
-            border-radius: 5px;
-            max-width: 80%;
-            word-wrap: break-word;
-            line-height: 1.4;
-        }
-
-        /* Message Styling */
-        .user-message {
-            background-color: #0a4a7e; /* Darker blue for user */
-            color: #ffffff;
-            margin-left: auto; /* Align user messages to the right */
-            text-align: right;
-        }
-
-        .model-message {
-            background-color: #3a3a3a; /* Dark grey for model */
-            color: #e0e0e0;
-            margin-right: auto; /* Ensure model messages stay left */
-            white-space: normal; /* Allow wrapping from Markdown */
-        }
-        /* --- Styling for Markdown elements within model messages --- */
-        .model-message > div { /* Target the div created by JS to hold markdown content */
-             margin-top: 5px; /* Add space below "Gemini:" */
-        }
-
-        /* Inline code */
-        .model-message code:not(pre code) { /* Style inline code differently from code blocks */
-            background-color: #222; /* Slightly different dark */
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 0.9em;
-            border: 1px solid #444;
-        }
-
-        /* Code blocks */
-        .model-message pre {
-            background-color: #1c1c1c; /* Very dark background for code blocks */
-            padding: 12px;
-            border-radius: 4px;
-            overflow-x: auto; /* Allow horizontal scroll for long code blocks */
-            border: 1px solid #444;
-            margin-top: 5px;
-            margin-bottom: 5px;
-        }
-        .model-message pre code { /* Target code specifically within pre */
-            background-color: transparent; /* Inherit pre background */
-            padding: 0;
-            border: none;
-            font-family: monospace; /* Ensure monospace */
-            font-size: 0.9em; /* Consistent font size */
-            white-space: pre; /* Preserve whitespace in code block */
-            color: #abb2bf; /* Default text color from atom-one-dark theme */
-        }
-        /* Override highlight.js default background if needed, but atom-one-dark should match pre */
-        .model-message pre code.hljs {
-             background: transparent !important;
-             padding: 0 !important; /* Override hljs padding */
-        }
-
-        .model-message ul, .model-message ol {
-             padding-left: 25px; /* More indentation for lists */
-             margin-top: 5px;
-             margin-bottom: 5px;
-        }
-         .model-message li {
-             margin-bottom: 4px; /* Space between list items */
-         }
-
-        .model-message blockquote {
-            border-left: 3px solid #555;
-            padding-left: 15px; /* More padding */
-            margin-left: 0;
-            margin-top: 5px;
-            margin-bottom: 5px;
-            color: #aaa;
-            font-style: italic;
-        }
-        .model-message table {
-            border-collapse: collapse;
-            margin: 10px 0;
-            width: auto; /* Don't force full width */
-            border: 1px solid #555;
-        }
-        .model-message th, .model-message td {
-            border: 1px solid #555;
-            padding: 6px 10px;
-            text-align: left;
-        }
-         .model-message th {
-             background-color: #333;
-             font-weight: bold;
-         }
-         /* --- End Markdown Styling --- */
-
-
-        .error-message {
-            background-color: #5e2a2e; /* Dark red for errors */
-            color: #f8d7da;
-            margin-right: auto;
-            white-space: pre-wrap;
-        }
-
-         .internal-message {
-            background-color: #4d431f; /* Dark yellow for internal steps */
-            color: #fff3cd;
-            font-size: 0.8em;
-            font-style: italic;
-            margin-left: auto;
-            margin-right: auto;
-            max-width: 90%;
-            margin-top: 5px;
-            margin-bottom: 5px;
-            white-space: pre-wrap;
-            border: 1px dashed #665d3e;
-            text-align: center;
-        }
-
-        /* Form Styling */
-        form {
-            display: flex;
-            margin-top: 10px;
-        }
-
-        input[type="text"] {
-            flex-grow: 1;
-            padding: 10px;
-            border: 1px solid #555;
-            border-radius: 3px;
-            margin-right: 10px;
-            background-color: #3a3a3a;
-            color: #e0e0e0;
-            font-size: 1em;
-        }
-        input[type="text"]::placeholder {
-             color: #888;
-        }
-
-
-        button {
-            padding: 10px 15px;
-            background-color: #0d6efd;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 1em;
-            transition: background-color 0.2s ease;
-        }
-        button:hover {
-            background-color: #0b5ed7;
-        }
-
-        /* Link Buttons */
-        .button-link {
-            display: inline-block;
-            padding: 5px 10px;
-            margin-top: 10px;
-            margin-right: 10px;
-            background-color: #495057;
-            color: white;
-            text-decoration: none;
-            border-radius: 3px;
-            font-size: 0.9em;
-            transition: background-color 0.2s ease;
-        }
-        .button-link:hover {
-            background-color: #5a6268;
-        }
-    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
-    <h1>Chat with Filesystem MCP Server (Dark)</h1>
-    <div class="chatbox" id="chatbox">
-        {% for msg in chat_history %}
-            {% if msg.type == 'user' %}
-                <div class="message user-message"><b>You:</b> {{ msg.text }}</div>
-            {% elif msg.type == 'model' %}
-                {# Add data attribute for raw markdown, remove |safe filter from initial display #}
-                <div class="message model-message" data-markdown-content="{{ msg.text }}">
-                    <b>Gemini:</b><br>
-                    {# Initial content is HTML-escaped text, will be replaced by JS #}
-                    <span class="raw-model-content" style="white-space: pre-wrap;">{{ msg.text }}</span>
+    <h1>MCPBro Chat (Dark)</h1>
+    <div class="chat-container">
+        <div class="chat-history" id="chat-history">
+            {% for message in chat_history %}
+                <div class="message {{ message.type }}" {% if message.type == 'model' %}data-markdown-content="{{ message.text }}"{% endif %}>
+                    <span class="sender">{{ message.type.capitalize() }}:</span>
+                    <div class="text" style="white-space: pre-wrap;">{{ message.text }}</div>
                 </div>
-            {% elif msg.type == 'error' %}
-                <div class="message error-message"><b>Error:</b><br>{{ msg.text }}</div>
-            {% elif msg.type == 'internal' %}
-                 <div class="message internal-message"><i>{{ msg.text }}</i></div>
-            {% endif %}
-        {% endfor %}
+            {% endfor %}
+        </div>
+        <div class="chat-input">
+            <form id="chat-form" action="javascript:sendMessage();">
+                <input type="text" id="prompt" name="prompt" placeholder="Enter your message..." autocomplete="off" required>
+                <button type="submit">Send</button>
+            </form>
+            <div class="controls">
+                <a href="{{ url_for('reset') }}" class="reset-button">Reset Chat</a>
+                <span id="status-indicator" class="status-idle">Idle</span>
+            </div>
+        </div>
     </div>
 
-    <form method="post" action="/chat">
-        <input type="text" name="prompt" placeholder="Enter your message..." required autocomplete="off">
-        <button type="submit">Send</button>
-    </form>
-    <a href="/reset" class="button-link">Reset Chat</a>
-    <a href="/debug" class="button-link" target="_blank">View Debug Log</a>
-
     <script>
-        // Function to scroll the chatbox to the bottom
+        const chatHistory = document.getElementById('chat-history');
+        const promptInput = document.getElementById('prompt');
+        const chatForm = document.getElementById('chat-form');
+        const statusIndicator = document.getElementById('status-indicator');
+        const socket = io();
+
         function scrollToBottom() {
-            const chatbox = document.getElementById('chatbox');
-            // Small delay to ensure rendering is complete before scrolling
             setTimeout(() => {
-                 chatbox.scrollTop = chatbox.scrollHeight;
-            }, 50); // 50ms delay, adjust if needed
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+            }, 50);
         }
 
-        // Function to render Markdown and apply syntax highlighting
-        function renderMarkdownAndHighlight() {
-            const modelMessages = document.querySelectorAll('.model-message[data-markdown-content]');
-
-            // Check if libraries are loaded
-            if (typeof marked === 'undefined') {
-                console.error('marked.js library not loaded.');
+        function renderMarkdownAndHighlight(element) {
+            if (!element || typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+                console.warn('Markdown rendering prerequisites not met for element:', element);
                 return;
             }
-            if (typeof DOMPurify === 'undefined') {
-                console.error('DOMPurify library not loaded.');
+
+            const textDiv = element.querySelector('.text');
+            const rawMarkdown = element.getAttribute('data-markdown-content');
+
+            if (!textDiv || rawMarkdown === null) {
+                if (textDiv) textDiv.style.whiteSpace = 'pre-wrap';
                 return;
             }
-             if (typeof hljs === 'undefined') {
-                console.error('highlight.js library not loaded.');
-                // Decide whether to proceed without highlighting or stop
-                // return; // Option: Stop if highlighting is essential
-            }
 
+            try {
+                const dirtyHtml = marked.parse(rawMarkdown);
+                const cleanHtml = DOMPurify.sanitize(dirtyHtml);
+                textDiv.innerHTML = cleanHtml;
+                textDiv.style.whiteSpace = 'normal';
 
-            modelMessages.forEach(element => {
-                const rawMarkdown = element.getAttribute('data-markdown-content');
-                const initialContentElement = element.querySelector('.raw-model-content');
-
-                try {
-                    // 1. Parse Markdown to HTML
-                    const dirtyHtml = marked.parse(rawMarkdown);
-
-                    // 2. Sanitize HTML
-                    const cleanHtml = DOMPurify.sanitize(dirtyHtml);
-
-                    // 3. Update the element's content after "Gemini:<br>"
-                    const breakTag = element.querySelector('br');
-                    const containerDiv = document.createElement('div'); // Use a container for the parsed content
-                    containerDiv.innerHTML = cleanHtml;
-
-                    // Clear existing raw content (if it exists)
-                    if(initialContentElement) {
-                        element.removeChild(initialContentElement);
-                    }
-                    // Clear anything else after the <br> tag (if present)
-                    if (breakTag) {
-                        while (breakTag.nextSibling) {
-                            element.removeChild(breakTag.nextSibling);
-                        }
-                        // Append the container div after the break tag
-                         element.appendChild(containerDiv);
-                    } else {
-                         // Fallback: Replace entire content if <br> isn't found
-                         element.innerHTML = `<b>Gemini:</b><br>`;
-                         element.appendChild(containerDiv);
-                    }
-
-
-                    // 4. Apply Syntax Highlighting (if hljs is available)
-                    if (typeof hljs !== 'undefined') {
-                        // Find all <pre><code> blocks within the newly added content
-                        const codeBlocks = containerDiv.querySelectorAll('pre code');
-                        codeBlocks.forEach((block) => {
+                if (typeof hljs !== 'undefined') {
+                    const codeBlocks = textDiv.querySelectorAll('pre code');
+                    codeBlocks.forEach((block) => {
+                        try {
                             hljs.highlightElement(block);
-                        });
-                    }
-
-                } catch (error) {
-                    console.error('Error processing Markdown/Highlighting:', error);
-                    // If error, ensure the raw text is still displayed reasonably
-                    if(initialContentElement) {
-                        initialContentElement.style.display = 'inline'; // Make sure raw text is visible
-                    }
+                        } catch (highlightError) {
+                            console.error('Highlight.js error:', highlightError, 'on block:', block);
+                        }
+                    });
+                } else {
+                    console.warn('highlight.js not loaded, skipping syntax highlighting.');
                 }
-            });
+            } catch (error) {
+                console.error('Error processing Markdown/Highlighting:', error);
+                textDiv.textContent = rawMarkdown;
+                textDiv.style.whiteSpace = 'pre-wrap';
+            }
         }
 
+        function addMessage(type, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', type);
 
-        // Run functions when the page finishes loading
+            const senderSpan = document.createElement('span');
+            senderSpan.classList.add('sender');
+            senderSpan.textContent = `${type.charAt(0).toUpperCase() + type.slice(1)}:`;
+            messageDiv.appendChild(senderSpan);
+
+            const textDiv = document.createElement('div');
+            textDiv.classList.add('text');
+
+            if (type === 'model') {
+                messageDiv.setAttribute('data-markdown-content', text);
+                textDiv.style.whiteSpace = 'pre-wrap';
+                textDiv.textContent = text;
+                messageDiv.appendChild(textDiv);
+                renderMarkdownAndHighlight(messageDiv);
+            } else {
+                textDiv.textContent = text;
+                textDiv.style.whiteSpace = 'pre-wrap';
+                messageDiv.appendChild(textDiv);
+            }
+
+            chatHistory.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        function sendMessage() {
+            const prompt = promptInput.value.trim();
+            if (prompt) {
+                console.log('Sending message:', prompt);
+                socket.emit('send_message', { prompt: prompt });
+                promptInput.value = '';
+            }
+        }
+
+        socket.on('connect', () => {
+            console.log('Socket.IO connected:', socket.id);
+            statusIndicator.textContent = 'Connected';
+            statusIndicator.className = 'status-connected';
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Socket.IO disconnected');
+            statusIndicator.textContent = 'Disconnected';
+            statusIndicator.className = 'status-disconnected';
+        });
+
+        socket.on('connect_error', (err) => {
+            console.error('Socket.IO connection error:', err);
+            statusIndicator.textContent = 'Connection Error';
+            statusIndicator.className = 'status-disconnected';
+            addMessage('error', `Connection failed: ${err.message}. Please check the server and refresh.`);
+        });
+
+        socket.on('new_message', (data) => {
+            console.log('Received message:', data);
+            addMessage(data.type, data.text);
+        });
+
+        socket.on('status_update', (data) => {
+            console.log('Status update:', data.message);
+            statusIndicator.textContent = data.message;
+            if (data.message === 'Processing...') {
+                statusIndicator.className = 'status-processing';
+            } else if (statusIndicator.textContent === 'Connected') {
+                statusIndicator.className = 'status-connected';
+            } else {
+                statusIndicator.className = 'status-idle';
+            }
+        });
+
+        socket.on('error', (data) => {
+            console.error('Server error:', data.message);
+            addMessage('error', `Server Error: ${data.message}`);
+            statusIndicator.textContent = 'Error';
+            statusIndicator.className = 'status-disconnected';
+        });
+
+        socket.on('history_reset', () => {
+            console.log('History reset signal received.');
+        });
+
         window.onload = () => {
-            renderMarkdownAndHighlight(); // Render Markdown and highlight code
-            scrollToBottom(); // Scroll to bottom after rendering
+            document.querySelectorAll('.message.model[data-markdown-content]').forEach(element => {
+                renderMarkdownAndHighlight(element);
+            });
+            scrollToBottom();
         };
-
     </script>
 </body>
 </html>

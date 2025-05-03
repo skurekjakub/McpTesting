@@ -2,6 +2,8 @@
 """
 Flask application factory for the MCP Filesystem Chatbot.
 Handles routing, session management, and interacts with chat_processor.
+Uses Flask-SocketIO for asynchronous chat communication.
+Runs asyncio tasks in a separate thread.
 """
 import asyncio
 import os
@@ -9,188 +11,214 @@ import sys
 import traceback
 import json
 from typing import List
+# --- MODIFIED: Import threading ---
+import threading
+# --- END MODIFIED ---
 
 from flask import Flask, request, render_template, redirect, url_for, session
+from flask_socketio import SocketIO, emit
 from flask_session import Session
 from google.genai import types as genai_types
 
-# --- Use relative imports within the 'src' package ---
-from .logic import chat_processor # Main logic orchestrator
-from .logic import initializers   # Initialization functions
-from .logic import utils          # Logging utilities
-from config import app_config      # Import the application config
+from .logic import chat_processor
+from .logic import initializers
+from .logic import utils
+from config import app_config
 
-# --- Global variables for initialized clients (consider alternatives for scalability) ---
-# These are initialized within create_app but accessed by routes.
-# Be mindful of concurrency issues if not using request context properly.
-# A better approach might involve Flask's application context (g) or dependency injection.
 gemini_client_global = None
 mcp_servers_global = None
 summarizer_client_global = None
 
+# --- MODIFIED: Use threading async_mode for SocketIO --- 
+socketio = SocketIO(manage_session=False, async_mode='threading')
+# --- END MODIFIED ---
+
+# --- MODIFIED: Global asyncio loop for the background thread ---
+# Create a dedicated event loop for background asyncio tasks
+background_asyncio_loop = asyncio.new_event_loop()
+
+def run_background_loop():
+    """Runs the dedicated asyncio event loop in a background thread."""
+    utils.add_debug_log("Starting background asyncio event loop...")
+    asyncio.set_event_loop(background_asyncio_loop)
+    try:
+        background_asyncio_loop.run_forever()
+    finally:
+        background_asyncio_loop.close()
+        utils.add_debug_log("Background asyncio event loop stopped.")
+
+# Start the background event loop thread when the module loads
+background_thread = threading.Thread(target=run_background_loop, daemon=True)
+background_thread.start()
+# --- END MODIFIED ---
+
+
 def create_app(config_object=app_config):
     """Application Factory Function"""
-    app = Flask(__name__, template_folder='templates', static_folder='static') # Define template/static folders relative to src
+    app = Flask(__name__, template_folder='templates', static_folder='static')
     app.config.from_object(config_object)
-
-    # Initialize Flask-Session
     Session(app)
+    socketio.init_app(app)
 
-    # --- Initialize Clients and Servers on Startup ---
-    # Use global variables declared outside the factory function
     global gemini_client_global, mcp_servers_global, summarizer_client_global
-
     utils.add_debug_log("App factory starting...")
     gemini_client_global = initializers.initialize_gemini_client()
     mcp_servers_global = initializers.initialize_mcp_servers()
-    summarizer_client_global = initializers.initialize_gemini_client() # Assuming same init for summarizer
-
-    # Store in chat_processor module (or pass explicitly to functions)
-    # This approach of setting module-level variables from app factory can be debated.
-    # Passing clients explicitly or using Flask's 'g' object might be cleaner.
+    summarizer_client_global = initializers.initialize_gemini_client()
     chat_processor.gemini_client = gemini_client_global
     chat_processor.mcp_servers = mcp_servers_global
     chat_processor.summarizer_client = summarizer_client_global
 
-    # Check initialization status
     gemini_ok = gemini_client_global is not None
     summarizer_ok = summarizer_client_global is not None
     mcp_ok = bool(mcp_servers_global)
+    if not gemini_ok: print("\n--- WARNING: Gemini client failed to initialize. ---")
+    if not summarizer_ok: print("\n--- WARNING: Summarizer client failed to initialize. ---")
+    if not mcp_ok: print("\n--- WARNING: MCP servers dictionary is empty. ---")
 
-    if not gemini_ok:
-        print("\n--- WARNING: Gemini client failed to initialize during app startup. ---")
-    if not summarizer_ok:
-        print("\n--- WARNING: Summarizer client failed to initialize during app startup. ---")
-    if not mcp_ok:
-        print("\n--- WARNING: MCP servers dictionary is empty after initialization. ---")
-
-    # --- Register Blueprints or Routes ---
     with app.app_context():
-        # --- Flask Routes ---
-
+        # --- Flask Routes (index, reset, debug remain the same) ---
         @app.route('/', methods=['GET'])
         def index():
-            """Renders the main chat page, retrieving history from session."""
             if 'chat_history_display' not in session: session['chat_history_display'] = []
             if 'gemini_history_internal' not in session: session['gemini_history_internal'] = []
             return render_template('index.html', chat_history=session.get('chat_history_display', []))
 
-        @app.route('/chat', methods=['POST'])
-        def chat():
-            """Handles user input, calls async processing, updates session history."""
-            user_input = request.form.get('prompt', '').strip()
-            if not user_input:
-                return redirect(url_for('index'))
-
-            # Access initialized clients (using the module variables for now)
-            display_history_error = None
-            if not chat_processor.gemini_client:
-                display_history_error = "Chat client is not initialized. Cannot process request."
-            elif not chat_processor.mcp_servers:
-                display_history_error = "Tool servers are not initialized. Tool usage may fail."
-
-            if display_history_error:
-                chat_history_display = session.get('chat_history_display', [])
-                chat_history_display.append({'type': 'error', 'text': display_history_error})
-                session['chat_history_display'] = chat_history_display
-                session.modified = True
-                return redirect(url_for('index'))
-
-            # Retrieve history from session
-            chat_history_display = session.get('chat_history_display', [])
-            gemini_history_internal_raw = session.get('gemini_history_internal', [])
-
-            # Convert raw dict history back to Content objects
-            try:
-                gemini_history_internal = [genai_types.Content.model_validate(item) for item in gemini_history_internal_raw]
-            except Exception as e:
-                error_trace = traceback.format_exc()
-                utils.add_debug_log(f"Error deserializing history from session: {e}")
-                utils.add_debug_log(f"Deserialization Traceback:\n{error_trace}")
-                session['chat_history_display'] = []
-                session['gemini_history_internal'] = []
-                chat_history_display = [{'type': 'error', 'text': f"Error loading chat history: {e}. History reset."}]
-                session['chat_history_display'] = chat_history_display
-                session.modified = True
-                return render_template('index.html', chat_history=chat_history_display)
-
-            # Add user message to display history
-            chat_history_display.append({'type': 'user', 'text': user_input})
-
-            # --- Run the async logic ---
-            utils.add_debug_log(f"User input received: {user_input}")
-            try:
-                final_response_text, updated_gemini_history, internal_steps = asyncio.run(
-                    chat_processor.process_prompt(user_input, gemini_history_internal)
-                )
-                utils.add_debug_log(f"Processing complete. Final text preview: {(final_response_text[:250] + '...' if len(final_response_text) > 250 else final_response_text).replace('\n', ' ')}")
-            except Exception as e:
-                error_trace = traceback.format_exc()
-                utils.add_debug_log(f"Error running/calling process_prompt: {e}\n{error_trace}")
-                final_response_text = f"Critical error during processing: {e}"
-                updated_gemini_history = gemini_history_internal # Keep old history
-                internal_steps = [f"Critical error: {e}"]
-
-            # Add internal steps and final response to display history
-            for step in internal_steps:
-                chat_history_display.append({'type': 'internal', 'text': step})
-            response_type = 'error' if final_response_text.lower().startswith("error:") else 'model'
-            chat_history_display.append({'type': response_type, 'text': final_response_text})
-
-            # --- Store updated history back in session ---
-            session['chat_history_display'] = chat_history_display
-
-            # --- Serialize history item by item ---
-            serialized_history = []
-            serialization_error_occurred = False
-            for i, item in enumerate(updated_gemini_history):
-                try:
-                    item_dict = item.model_dump(mode='json')
-                    serialized_history.append(item_dict)
-                except AttributeError:
-                    try:
-                        utils.add_debug_log(f"AttributeError: .model_dump() not found for item #{i}. Trying .dict()...")
-                        item_dict = item.dict()
-                        serialized_history.append(item_dict)
-                    except Exception as e_dict:
-                        serialization_error_occurred = True
-                        error_trace = traceback.format_exc()
-                        utils.add_debug_log(f"Error serializing history item #{i} (using .dict()): {e_dict}\n{error_trace}")
-                except Exception as e:
-                    serialization_error_occurred = True
-                    error_trace = traceback.format_exc()
-                    utils.add_debug_log(f"Error serializing history item #{i} to session: {e}\n{error_trace}")
-
-            session['gemini_history_internal'] = serialized_history
-            session.modified = True
-
-            if serialization_error_occurred:
-                session['chat_history_display'].append({'type': 'error', 'text': "Error saving full chat history state. Some history may be lost."})
-                session.modified = True
-
-            return redirect(url_for('index'))
-
         @app.route('/reset', methods=['GET'])
         def reset():
-            """Clears the chat history stored in the session."""
             session.pop('chat_history_display', None)
             session.pop('gemini_history_internal', None)
             session.modified = True
             utils.add_debug_log("Chat history reset via /reset.")
+            socketio.emit('history_reset', room=request.sid)
             return redirect(url_for('index'))
 
         @app.route('/debug', methods=['GET'])
         def debug():
-            """Displays the in-memory debug log from the utils module."""
             html = "<!DOCTYPE html><html><head><title>Debug Log</title>"
             html += "<style>body {font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 10px; font-size: 0.9em;}"
             html += "h1 { border-bottom: 1px solid #ccc; padding-bottom: 5px; } </style>"
             html += "</head><body><h1>Debug Log</h1>\n"
-            html += "\n".join(utils.get_debug_logs()) # Access via utils module
+            html += "\n".join(utils.get_debug_logs())
             html += "</body></html>"
             return html
 
+    # --- SocketIO Event Handlers ---
+    @socketio.on('connect')
+    def handle_connect():
+        utils.add_debug_log(f"Client connected: {request.sid}")
+
+    @socketio.on('disconnect')
+    def handle_disconnect():
+        utils.add_debug_log(f"Client disconnected: {request.sid}")
+
+    @socketio.on('send_message')
+    def handle_send_message(data):
+        """Handles receiving a message, runs async processing in a separate thread."""
+        user_input = data.get('prompt', '').strip()
+        if not user_input:
+            emit('error', {'message': 'Empty prompt received.'}, room=request.sid)
+            return
+
+        utils.add_debug_log(f"Received prompt from {request.sid}: '{user_input}'")
+        emit('new_message', {'type': 'user', 'text': user_input}, room=request.sid)
+
+        # --- Session handling remains the same ---
+        chat_history_display = session.get('chat_history_display', [])
+        gemini_history_internal_raw = session.get('gemini_history_internal', [])
+        chat_history_display.append({'type': 'user', 'text': user_input})
+        session['chat_history_display'] = chat_history_display
+        session.modified = True
+
+        # --- Initialization checks remain the same ---
+        display_history_error = None
+        if not chat_processor.gemini_client: display_history_error = "Chat client not initialized."
+        elif not chat_processor.mcp_servers: display_history_error = "Tool servers not initialized."
+        if display_history_error:
+            utils.add_debug_log(f"Initialization error for {request.sid}: {display_history_error}")
+            emit('new_message', {'type': 'error', 'text': display_history_error}, room=request.sid)
+            chat_history_display.append({'type': 'error', 'text': display_history_error})
+            session['chat_history_display'] = chat_history_display
+            session.modified = True
+            return
+
+        # --- History deserialization remains the same ---
+        try:
+            gemini_history_internal = [genai_types.Content.model_validate(item) for item in gemini_history_internal_raw]
+        except Exception as e:
+            # ... (error handling remains the same) ...
+            error_trace = traceback.format_exc()
+            utils.add_debug_log(f"Error deserializing history from session for {request.sid}: {e}\n{error_trace}")
+            emit('new_message', {'type': 'error', 'text': f"Error loading chat history: {e}. History reset."}, room=request.sid)
+            session['chat_history_display'] = [{'type': 'error', 'text': f"Error loading chat history: {e}. History reset."}]
+            session['gemini_history_internal'] = []
+            session.modified = True
+            return
+
+        # --- MODIFIED: Run the asyncio task in the background thread's loop ---
+        async def process_chat_task():
+            """The actual async task logic (content is the same)."""
+            # Need to access session within the task, Flask-SocketIO usually handles this.
+            # If session access fails here, we might need to pass data explicitly.
+            current_display_history = session.get('chat_history_display', []) # Get fresh copy for task
+
+            try:
+                utils.add_debug_log(f"Starting process_prompt for {request.sid} in background thread")
+                # Emit works across threads because SocketIO manages it
+                socketio.emit('status_update', {'message': 'Processing...'}, room=request.sid)
+
+                final_response_text, updated_gemini_history, internal_steps = await chat_processor.process_prompt(
+                    user_input, gemini_history_internal
+                )
+                utils.add_debug_log(f"Processing complete for {request.sid}. Final text preview: {(final_response_text[:50] + '...').replace('\n', ' ')}")
+
+                for step in internal_steps:
+                    socketio.emit('new_message', {'type': 'internal', 'text': step}, room=request.sid)
+                    current_display_history.append({'type': 'internal', 'text': step})
+
+                response_type = 'error' if final_response_text.lower().startswith(("error:", "warning:")) else 'model'
+                socketio.emit('new_message', {'type': response_type, 'text': final_response_text}, room=request.sid)
+                current_display_history.append({'type': response_type, 'text': final_response_text})
+
+                serialized_history = []
+                serialization_error_occurred = False
+                for i, item in enumerate(updated_gemini_history):
+                    try:
+                        item_dict = item.model_dump(mode='json')
+                        serialized_history.append(item_dict)
+                    except Exception as e_ser:
+                        serialization_error_occurred = True
+                        error_trace = traceback.format_exc()
+                        utils.add_debug_log(f"Error serializing history item #{i} for {request.sid}: {e_ser}\n{error_trace}")
+
+                # --- Update session from the background task ---
+                # This relies on Flask-Session and Flask-SocketIO's integration.
+                # If issues arise, consider passing results back to the main thread/context.
+                session['gemini_history_internal'] = serialized_history
+                if serialization_error_occurred:
+                    socketio.emit('new_message', {'type': 'error', 'text': "Error saving full chat history state."}, room=request.sid)
+                    current_display_history.append({'type': 'error', 'text': "Error saving full chat history state."})
+
+                session['chat_history_display'] = current_display_history
+                session.modified = True
+                utils.add_debug_log(f"Session updated for {request.sid} from background task.")
+
+
+            except Exception as e:
+                error_trace = traceback.format_exc()
+                utils.add_debug_log(f"Critical error in process_chat_task for {request.sid}: {e}\n{error_trace}")
+                socketio.emit('new_message', {'type': 'error', 'text': f"Critical server error during processing: {e}"}, room=request.sid)
+                current_display_history.append({'type': 'error', 'text': f"Critical server error: {e}"})
+                session['chat_history_display'] = current_display_history
+                session.modified = True
+            finally:
+                socketio.emit('status_update', {'message': 'Idle'}, room=request.sid)
+
+        # Schedule the coroutine on the background loop
+        utils.add_debug_log(f"Scheduling process_chat_task for {request.sid} on background loop.")
+        asyncio.run_coroutine_threadsafe(process_chat_task(), background_asyncio_loop)
+        # --- END MODIFIED ---
+
     return app
 
-# --- Remove the if __name__ == '__main__': block ---
-# The app is now run via run.py
+# --- Remove the old if __name__ == '__main__': block ---
