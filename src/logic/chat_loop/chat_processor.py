@@ -6,10 +6,9 @@ Supports multi-turn function calling within a single user request.
 Includes a system instruction to guide model behavior.
 """
 
-import asyncio
 import traceback
 import json
-from typing import Dict, Any, List, Tuple, Optional, Callable
+from typing import Dict, List, Tuple, Optional, Callable
 
 # --- Google Generative AI SDK Imports ---
 from google import genai

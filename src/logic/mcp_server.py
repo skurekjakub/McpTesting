@@ -4,7 +4,6 @@ Defines a class to manage interaction with a single MCP server.
 Handles connection, tool listing, and tool calling via stdio.
 """
 
-import asyncio
 import traceback
 from typing import Dict, Any, List, Optional, Union
 

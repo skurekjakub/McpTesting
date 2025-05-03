@@ -5,7 +5,7 @@ Handles discovery, formatting, and execution of tools via MCP servers.
 
 import asyncio
 import traceback
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 # --- Google Generative AI SDK Imports ---
 from google.genai import types as genai_types
