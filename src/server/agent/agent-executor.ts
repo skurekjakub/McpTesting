@@ -13,6 +13,7 @@ import { extractTextFromResult, extractFunctionCallFromResult } from '../llm/gem
 import { countTokensForText } from '../llm/gemini/tokenization';
 import { PromptManager } from './prompt-manager';
 import { HistoryManager } from './history-manager';
+import { HistoryManagerProvider } from './history/history-manager-provider';
 import { ToolOrchestrator } from './tool-orchestrator';
 import { agentConfig } from './agent-config';
 
@@ -27,12 +28,10 @@ type StepCallback = (message: string) => void;
  */
 export class AgentExecutor {
   private promptManager: PromptManager;
-  private historyManager: HistoryManager;
   private toolOrchestrator: ToolOrchestrator;
   
   constructor() {
     this.promptManager = new PromptManager();
-    this.historyManager = new HistoryManager();
     this.toolOrchestrator = new ToolOrchestrator();
   }
   
@@ -59,20 +58,25 @@ export class AgentExecutor {
     let currentHistory: Content[];
     
     try {
+      // Get the appropriate history manager based on conversation characteristics
+      const historyManager = this.selectHistoryManager(history, userPrompt);
+      logStep(`Selected history manager with strategy: ${historyManager.getStrategyName()}`);
+      
       // Process history and add user message
       logStep(`Processing prompt: '${userPrompt.substring(0, 100)}${userPrompt.length > 100 ? '...' : ''}'`);
-      currentHistory = await this.historyManager.processHistory(history, userPrompt, logStep);
+      currentHistory = await historyManager.processHistory(history, userPrompt, logStep);
       
       // Discover available tools
       const tools = await this.toolOrchestrator.discoverTools(logStep);
       
       // Execute the agent loop
-      const result = await this.executeAgentLoop(currentHistory, tools, logStep);
+      const result = await this.executeAgentLoop(currentHistory, tools, logStep, historyManager);
       finalResponse = result.response;
       currentHistory = result.history;
       
       // Perform final cleanup
-      currentHistory = this.historyManager.cleanupDuplicateResponses(currentHistory);
+      currentHistory = historyManager.cleanupDuplicateResponses(currentHistory);
+      currentHistory = historyManager.cleanupEmptyMessages(currentHistory);
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -90,6 +94,29 @@ export class AgentExecutor {
     
     return [finalResponse, currentHistory];
   }
+
+  /**
+   * Selects an appropriate history manager based on conversation characteristics
+   * and execution context.
+   */
+  private selectHistoryManager(history: Content[], userPrompt?: string): HistoryManager {
+    // Include the current user prompt in analysis if available
+    const historyToAnalyze = userPrompt 
+      ? [...history, { role: 'user', parts: [{ text: userPrompt }] }]
+      : history;
+    
+    // Calculate model token limit based on config
+    const tokenLimit = agentConfig.summarization.threshold;
+      
+    // Use the HistoryManagerProvider to get an optimally configured history manager
+    return HistoryManagerProvider.provideOptimalHistoryManager(
+      historyToAnalyze, 
+      { 
+        tokenLimit,
+        costOptimization: agentConfig.summarization.costOptimizationEnabled
+      }
+    );
+  }
   
   /**
    * Core agent loop that handles the ReAct pattern execution
@@ -98,8 +125,12 @@ export class AgentExecutor {
   private async executeAgentLoop(
     history: Content[],
     tools: Tool[],
-    logCallback?: StepCallback
+    logCallback?: StepCallback,
+    historyManager?: HistoryManager
   ): Promise<{ response: string; history: Content[] }> {
+    // Use provided history manager or create a default one
+    const manager = historyManager || new HistoryManager();
+    
     const logStep = (message: string) => {
       logger.info(`${agentConfig.logging.agentExecutor} ${message}`);
       if (logCallback) logCallback(message);
@@ -163,6 +194,11 @@ export class AgentExecutor {
           // Execute the function and add response to history
           const functionResponse = await this.toolOrchestrator.executeFunctionCall(functionCall, logCallback);
           currentHistory.push(functionResponse);
+          
+          // Check if we need to summarize after tool calls to manage context length
+          if (functionCallCount % 3 === 0) {
+            currentHistory = await manager.processHistory(currentHistory, undefined, logCallback);
+          }
           
         } else {
           // No function call - final response (ReAct: final reasoning)

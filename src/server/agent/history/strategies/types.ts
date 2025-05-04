@@ -12,7 +12,12 @@ export interface SummarizationStrategy {
    * @returns Processed history with summarization applied
    */
   summarize(history: Content[]): Promise<Content[]>;
-  
+
+  /**
+   * Returns a name for the strategy, used for logging and identification.
+   */
+  getDescription?(): string;
+
   /**
    * Strategy name to identify the strategy for logging
    */

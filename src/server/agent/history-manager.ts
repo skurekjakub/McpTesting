@@ -11,6 +11,7 @@ import { SummarizationStrategyFactory } from './history/summarization-strategies
 import { HistoryCleanupService } from './history/cleanup-service';
 import { MessageUtils } from './history/message-utils';
 import { LogCallback } from './history/types';
+import { StrategyOptions } from './history/strategies/strategy-factory';
 
 /**
  * Manages conversation history, including summarization when needed.
@@ -19,10 +20,23 @@ import { LogCallback } from './history/types';
 export class HistoryManager {
   private importanceScorer: ImportanceScorer;
   private cleanupService: HistoryCleanupService;
+  private strategyOptions: StrategyOptions;
+  private cachedStrategy: any = null; // Used to cache the last created strategy
   
-  constructor() {
+  constructor(strategyOptions?: Partial<StrategyOptions>) {
     this.importanceScorer = new ImportanceScorer();
     this.cleanupService = new HistoryCleanupService();
+    
+    // Default strategy options with smart defaults for programming contexts
+    this.strategyOptions = {
+      useImportanceScoring: agentConfig.importanceScoring.enabled,
+      useCostOptimization: agentConfig.summarization.costOptimizationEnabled,
+      preserveCodeBlocks: true,      // Default to preserving code blocks
+      preserveReferences: true,      // Default to preserving URLs and file paths
+      preserveOpenQuestions: true,   // Default to preserving unanswered questions
+      reduceVerbosity: false,        // Default to not reducing verbosity (can be expensive)
+      ...strategyOptions             // Override with any provided options
+    };
   }
 
   /**
@@ -63,20 +77,14 @@ export class HistoryManager {
     
     logStep(`Token threshold (${agentConfig.summarization.threshold}) exceeded. Applying summarization.`);
 
-    // Get the appropriate summarization strategy based on configuration
-    const useImportanceScoring = agentConfig.importanceScoring.enabled;
-    const useCostOptimization = agentConfig.summarization.costOptimizationEnabled;
+    // Create the appropriate strategy via factory using our configured strategy options
+    const strategy = SummarizationStrategyFactory.createStrategy(this.strategyOptions);
+    this.cachedStrategy = strategy; // Cache for later reference
     
-    // Create the appropriate strategy via factory
-    const strategy = SummarizationStrategyFactory.createStrategy(
-      useImportanceScoring,
-      useCostOptimization
-    );
+    logStep(`Using summarization strategy: ${strategy.name}`);
     
-    logStep(`Using ${strategy.name} summarization strategy`);
-    
-    // Apply importance scoring if the strategy requires it
-    if (useImportanceScoring) {
+    // Apply importance scoring if the strategy requires it 
+    if (this.strategyOptions.useImportanceScoring) {
       logStep('Applying contextual importance scoring to identify key messages to preserve');
       const scoredHistory = this.importanceScorer.scoreHistoryImportance(processedHistory);
       processedHistory = await strategy.summarize(scoredHistory);
@@ -88,6 +96,19 @@ export class HistoryManager {
     logStep(`History summarized successfully. New token count: ${newTokenCount}`);
     
     return processedHistory;
+  }
+  
+  /**
+   * Returns the name of the strategy being used by this history manager
+   */
+  getStrategyName(): string {
+    if (this.cachedStrategy) {
+      return this.cachedStrategy.name;
+    }
+    
+    // If we haven't created a strategy yet, create one temporarily to get its name
+    const strategy = SummarizationStrategyFactory.createStrategy(this.strategyOptions);
+    return strategy.name;
   }
   
   /**
@@ -103,5 +124,47 @@ export class HistoryManager {
    */
   cleanupEmptyMessages(history: Content[]): Content[] {
     return this.cleanupService.removeEmptyMessages(history);
+  }
+  
+  /**
+   * Updates the strategy options for this history manager
+   * @param options New strategy options to use
+   */
+  setStrategyOptions(options: Partial<StrategyOptions>): void {
+    this.strategyOptions = {
+      ...this.strategyOptions,
+      ...options
+    };
+    
+    // Clear cached strategy since options changed
+    this.cachedStrategy = null;
+    
+    logger.debug(`${agentConfig.logging.historyManager} Updated summarization strategy options: ${JSON.stringify(this.strategyOptions)}`);
+  }
+  
+  /**
+   * Creates a comprehensive history manager that uses all preservers
+   * to ensure maximum context preservation
+   */
+  static createComprehensive(): HistoryManager {
+    return new HistoryManager({
+      preserveCodeBlocks: true,
+      preserveReferences: true,
+      preserveOpenQuestions: true,
+      reduceVerbosity: false
+    });
+  }
+  
+  /**
+   * Creates a token-optimized history manager that uses all preservers
+   * plus verbosity reduction for maximum token efficiency
+   */
+  static createTokenOptimized(): HistoryManager {
+    return new HistoryManager({
+      preserveCodeBlocks: true,
+      preserveReferences: true,
+      preserveOpenQuestions: true,
+      reduceVerbosity: true
+    });
   }
 }
