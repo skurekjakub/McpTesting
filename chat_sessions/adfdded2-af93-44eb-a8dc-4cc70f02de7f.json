@@ -1,0 +1,17 @@
+{
+  "gemini_history_internal": "[{\"role\":\"user\",\"parts\":[{\"text\":\"test\"}]},{\"parts\":[{\"text\":\"Test acknowledged. I'm here and ready to help. How can I assist you today?\"}],\"role\":\"model\"}]",
+  "chat_history_display": [
+    {
+      "type": "internal",
+      "text": "Chat history reset."
+    },
+    {
+      "type": "user",
+      "text": "test"
+    },
+    {
+      "type": "model",
+      "text": "Test acknowledged. I'm here and ready to help. How can I assist you today?"
+    }
+  ]
+}

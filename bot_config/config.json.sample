@@ -8,6 +8,7 @@
   "enable_memory_server": false,
   "enable_chroma_server": true,
   "chroma_path": "./chroma_db",
+  "summarization_threshold_tokens": 16000,
   "chroma_collection_name": "chat_history",
   "default_gemini_model": "gemini-1.5-flash",
   "generation_gemini_model": "gemini-1.5-flash",

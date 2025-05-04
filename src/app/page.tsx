@@ -1,9 +1,9 @@
-import ChatInterface from '@/components/ChatInterface'; // Import the new component
+import ChatInterface from '@/components/ChatInterface';
 
 export default function Home() {
   return (
-    // Main container using Flexbox for layout, full height, dark background
-    <div className="flex flex-col h-screen bg-gray-800 text-white p-4 font-sans">
+    // Remove layout styles from here, they are now in layout.tsx
+    <div className="flex flex-col flex-grow"> {/* Keep flex-col and add flex-grow */} 
       {/* Chat Title */}
       <h1 className="text-2xl font-bold mb-4 text-center">MCPBro Chat (Next.js)</h1>
 

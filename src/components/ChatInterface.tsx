@@ -1,6 +1,6 @@
 'use client'; // This component uses hooks, so it must be a client component
 
-import React, { useState, useEffect, useRef, FormEvent } from 'react';
+import React, { useState, useEffect, useRef, FormEvent, ChangeEvent } from 'react'; // Add ChangeEvent
 import { useChatSocket } from '@/hooks/useChatSocket';
 import ChatMessage from '@/components/ChatMessage';
 
@@ -9,8 +9,12 @@ const ChatInterface: React.FC = () => {
     messages,
     connectionStatus,
     processingStatus,
+    sessionId, // Get sessionId
+    availableSessions, // Get available sessions
     sendMessage,
     resetChat,
+    startNewSession, // Get startNewSession
+    switchSession, // Get switch session function
   } = useChatSocket(); // Use our custom hook
 
   const [inputValue, setInputValue] = useState('');
@@ -30,7 +34,7 @@ const ChatInterface: React.FC = () => {
 
   const handleSendMessage = (e: FormEvent) => {
     e.preventDefault(); // Prevent default form submission
-    if (inputValue.trim()) {
+    if (inputValue.trim() && processingStatus !== 'processing') {
       sendMessage(inputValue);
       setInputValue(''); // Clear input field
     }
@@ -39,6 +43,17 @@ const ChatInterface: React.FC = () => {
   const handleReset = () => {
     // Maybe add a confirmation dialog here in a real app
     resetChat();
+  };
+
+  const handleNewSession = () => {
+    // Consider adding a confirmation dialog here
+    startNewSession();
+  };
+
+  // Handler for the session dropdown change
+  const handleSessionChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const newSessionId = event.target.value;
+    switchSession(newSessionId);
   };
 
   // Determine status text and style based on connection and processing state
@@ -103,16 +118,41 @@ const ChatInterface: React.FC = () => {
         </form>
         {/* Controls Area */}
         <div className="controls flex justify-between items-center text-sm">
-          <button
-            onClick={handleReset}
-            disabled={connectionStatus !== 'connected'} // Disable reset if not connected
-            className="reset-button text-red-500 hover:text-red-400 disabled:opacity-50 disabled:hover:text-red-500"
-          >
-            Reset Chat
-          </button>
-          <span id="status-indicator" className="status-idle">
-            {getStatusIndicator()}
-          </span>
+          <div className="space-x-2">
+            {/* Add New Chat Button */}
+            <button
+              onClick={handleNewSession}
+              className="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-white disabled:opacity-50"
+              disabled={connectionStatus !== 'connected'}
+            >
+              New Chat
+            </button>
+            <button
+              onClick={handleReset}
+              className="reset-button text-red-500 hover:text-red-400 disabled:opacity-50 disabled:hover:text-red-500"
+              disabled={connectionStatus !== 'connected'} // Disable reset if not connected
+            >
+              Reset Chat
+            </button>
+            {/* Session Dropdown */}
+            <select
+              value={sessionId || ''} // Ensure value is controlled
+              onChange={handleSessionChange}
+              disabled={connectionStatus !== 'connected'}
+              className="px-2 py-1 bg-gray-600 border border-gray-500 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+            >
+              <option value="" disabled={!!sessionId}>-- Select Session --</option>
+              {availableSessions.map((session) => (
+                <option key={session} value={session}>
+                  {session.substring(0, 8)}...
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Display Status */}
+          <div className="flex items-center space-x-2">
+            <span>Status: {getStatusIndicator()}</span>
+          </div>
         </div>
       </div>
     </div>
