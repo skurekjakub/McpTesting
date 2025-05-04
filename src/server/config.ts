@@ -1,11 +1,8 @@
 import fs from 'fs';
 import path, { dirname } from 'path'; // Import dirname
 import { fileURLToPath } from 'url'; // Import fileURLToPath
-import dotenv from 'dotenv';
 import { z } from 'zod'; // Using Zod for validation
 import logger from './logger'; // Import the shared logger
-
-dotenv.config(); // Load .env file if present
 
 // --- Default Values ---
 const DEFAULT_FILESYSTEM_TARGET_DIRECTORIES: string[] = [];

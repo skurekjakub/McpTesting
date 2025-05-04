@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import next from 'next';
-import dotenv from 'dotenv';
 
 import logger from './src/server/logger'; // Import the shared logger
 import { initializeGeminiClient } from './src/server/gemini-service'; // Assuming gemini-service exports this or similar
@@ -17,9 +16,6 @@ import {
     deleteCacheForSid,
     DisplayHistoryItem
 } from './src/server/history-cache';
-import { Content } from '@google/generative-ai';
-
-dotenv.config(); // Load environment variables from .env file
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = process.env.HOSTNAME || 'localhost';
