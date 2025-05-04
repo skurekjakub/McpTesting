@@ -1,25 +1,60 @@
 {
-  "gemini_api_key": "YOUR_GEMINI_API_KEY_GOES_HERE",
-  "filesystem_target_directories": [
-    "C:/path/to/your/first/target/directory",
-    "D:/another/project/path",
-    "/path/on/linux/or/mac"
-  ],
-  "enable_memory_server": false,
-  "enable_chroma_server": true,
-  "chroma_path": "./chroma_db",
-  "summarization_threshold_tokens": 16000,
-  "chroma_collection_name": "chat_history",
-  "default_gemini_model": "gemini-1.5-flash",
-  "summarization_gemini_model": "gemini-2.0-flash",
-  "generation_gemini_model": "gemini-1.5-flash",
+  "auth": {
+    "gemini_api_key": "YOUR_GEMINI_API_KEY_GOES_HERE"
+  },
   
-  "// Cost optimization settings": "The following settings help control API costs",
-  "cost_optimization_enabled": true,
-  "cost_efficient_summarization_model": "gemini-1.0-pro",
-  "recent_messages_to_preserve": 6,
-  "deep_history_threshold": 8000,
+  "server": {
+    "filesystem": {
+      "target_directories": [
+        "C:/path/to/your/first/target/directory",
+        "D:/another/project/path",
+        "/path/on/linux/or/mac"
+      ]
+    },
+    "memory": {
+      "enable_memory_server": false
+    },
+    "chroma": {
+      "enable_chroma_server": true,
+      "path": "./chroma_db",
+      "collection_name": "chat_history"
+    },
+    "logging": {
+      "max_debug_log_size": 1500,
+      "log_preview_len": 250
+    }
+  },
+
+  "llm": {
+    "models": {
+      "default": "gemini-1.5-flash",
+      "generation": "gemini-1.5-flash",
+      "summarization": "gemini-2.0-flash",
+      "cost_efficient_summarization": "gemini-1.0-pro"
+    },
+    "parameters": {
+      "generation_temperature": 0.7
+    }
+  },
   
-  "max_debug_log_size": 1500,
-  "log_preview_len": 250
+  "agent": {
+    "execution": {
+      "max_function_calls_per_turn": 25
+    },
+    "history": {
+      "summarization_threshold_tokens": 16000,
+      "recent_messages_to_preserve": 6,
+      "summary_message_prefix": "Summary of earlier conversation:\n"
+    },
+    "cost_optimization": {
+      "enabled": true,
+      "deep_history_threshold": 8000,
+      "target_compression_ratio": 0.3
+    },
+    "files": {
+      "system_instruction_filename": "system_instruction.md",
+      "system_instruction_directory": "bot_config",
+      "summarizer_instruction_filename": "system-instruction-summarizer.md"
+    }
+  }
 }

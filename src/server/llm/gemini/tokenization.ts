@@ -4,14 +4,14 @@ import {
     CountTokensResponse
 } from '@google/generative-ai';
 import logger from '../../logger'; // Adjust path
-import { config } from '../../config'; // Adjust path
+import { llmConfig } from '../../config/llm'; // Import directly from llm config module
 import { getGeminiClient } from './client'; // Import from sibling
 
 // Helper to get the model used for token counting (usually the generation model)
 function getTokenCountingModel() {
     const client = getGeminiClient();
     // Use the generation model for counting unless a specific counting model is defined
-    const modelName = config.GENERATION_GEMINI_MODEL || config.DEFAULT_GEMINI_MODEL;
+    const modelName = llmConfig.GENERATION_GEMINI_MODEL || llmConfig.DEFAULT_GEMINI_MODEL;
     if (!modelName) {
         throw new Error('No Gemini model configured for token counting.');
     }

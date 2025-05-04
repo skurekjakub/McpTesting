@@ -1,7 +1,9 @@
 // src/server/tools/mcp/mcp-initializer.ts
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import path from 'path';
-import { config, isConfigValid, resolvedProjectRoot } from '../../config'; // Adjust path
+import { serverConfig } from '../../config/server'; // Import from server config module
+import { resolvedProjectRoot } from '../../config/base'; // Import from base config module
+import { validateConfig } from '../../config'; // Import the validation function only
 import logger from '../../logger'; // Adjust path
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -17,6 +19,7 @@ const mcpClients: { [key: string]: Client | null } = {
 // --- MCP Server Initialization & Management ---
 
 export async function initializeMcpClients(): Promise<void> { // Renamed function
+    const isConfigValid = validateConfig(); // Use the validation function
     if (!isConfigValid) {
         logger.error('[MCP Initializer] Skipping MCP client initialization due to invalid config.');
         return;
@@ -26,11 +29,11 @@ export async function initializeMcpClients(): Promise<void> { // Renamed functio
     const connectPromises: Promise<any>[] = [];
 
     // --- Filesystem Server ---
-    if (config.FILESYSTEM_TARGET_DIRECTORIES && config.FILESYSTEM_TARGET_DIRECTORIES.length > 0) {
+    if (serverConfig.FILESYSTEM_TARGET_DIRECTORIES && serverConfig.FILESYSTEM_TARGET_DIRECTORIES.length > 0) {
         const fsArgs = [
             '-y',
             '@modelcontextprotocol/server-filesystem',
-            ...config.FILESYSTEM_TARGET_DIRECTORIES.map(p => path.resolve(resolvedProjectRoot, p))
+            ...serverConfig.FILESYSTEM_TARGET_DIRECTORIES.map(p => path.resolve(resolvedProjectRoot, p))
         ];
         const fsTransport = new StdioClientTransport({
             command: 'npx',
@@ -52,14 +55,11 @@ export async function initializeMcpClients(): Promise<void> { // Renamed functio
     }
 
     // --- Memory Server ---
-    if (config.ENABLE_MEMORY_SERVER) {
+    if (serverConfig.ENABLE_MEMORY_SERVER) {
         const memArgs = [
             '-y',
             '@modelcontextprotocol/server-memory',
         ];
-        // Note: Environment variables for child processes might need specific handling
-        // with StdioClientTransport if not inherited automatically.
-        // const memEnv = { MEMORY_FILE_PATH: path.resolve(resolvedProjectRoot, 'memory.json') };
         const memTransport = new StdioClientTransport({
             command: 'npx',
             args: memArgs
@@ -80,8 +80,8 @@ export async function initializeMcpClients(): Promise<void> { // Renamed functio
     }
 
     // --- ChromaDB Server ---
-    if (config.ENABLE_CHROMA_SERVER) {
-        const absChromaPath = path.resolve(resolvedProjectRoot, config.CHROMA_PATH);
+    if (serverConfig.ENABLE_CHROMA_SERVER) {
+        const absChromaPath = path.resolve(resolvedProjectRoot, serverConfig.CHROMA_PATH);
         const chromaArgs = [
             'chroma-mcp',
             '--client-type',

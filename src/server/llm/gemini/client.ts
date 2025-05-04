@@ -1,7 +1,8 @@
 // src/server/llm/gemini/client.ts
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import logger from '../../logger'; // Adjust path
-import { config, isConfigValid } from '../../config'; // Adjust path
+import { llmConfig } from '../../config/llm'; // Import directly from llm config module
+import { validateConfig } from '../../config'; // Import the validation function
 
 let geminiClientInstance: GoogleGenerativeAI | null = null;
 
@@ -10,7 +11,8 @@ let geminiClientInstance: GoogleGenerativeAI | null = null;
  * Should be called once during application startup.
  */
 export function initializeGeminiClient(): GoogleGenerativeAI | null {
-    if (!isConfigValid || !config?.GEMINI_API_KEY) {
+    const isConfigValid = validateConfig();
+    if (!isConfigValid || !llmConfig?.GEMINI_API_KEY) {
         logger.warn('[Gemini Client] Skipping Gemini client initialization due to invalid config or missing API key.');
         return null;
     }
@@ -21,7 +23,7 @@ export function initializeGeminiClient(): GoogleGenerativeAI | null {
 
     try {
         logger.info('[Gemini Client] Initializing Gemini client...');
-        geminiClientInstance = new GoogleGenerativeAI(config.GEMINI_API_KEY);
+        geminiClientInstance = new GoogleGenerativeAI(llmConfig.GEMINI_API_KEY);
         logger.info('[Gemini Client] Gemini client initialized successfully.');
         return geminiClientInstance;
     } catch (error: unknown) {

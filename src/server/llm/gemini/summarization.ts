@@ -7,7 +7,9 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import logger from '../../logger'; // Adjust path
-import { config } from '../../config'; // Adjust path
+import { llmConfig } from '../../config/llm'; // Import directly from llm config module
+import { agentConfig } from '../../config/agent'; // Import directly from agent config module
+import { resolvedProjectRoot } from '../../config/base'; // Import project root from base config
 import { getGeminiClient } from './client'; // Import from sibling
 import { extractTextFromResult } from './parsing'; // Correct the import path for parsing functions
 import { countTokensForText, countTokensForHistory } from './tokenization'; // Import tokenization utility
@@ -15,11 +17,11 @@ import { countTokensForText, countTokensForHistory } from './tokenization'; // I
 // Cost efficiency settings
 const COST_EFFICIENT_SETTINGS = {
     // Keep this many recent messages intact without summarization
-    RECENT_MESSAGES_TO_PRESERVE: 6,
+    RECENT_MESSAGES_TO_PRESERVE: agentConfig.RECENT_MESSAGES_TO_PRESERVE,
     // Threshold for aggressive summarization of older content (token count)
-    DEEP_HISTORY_THRESHOLD: 8000,
+    DEEP_HISTORY_THRESHOLD: agentConfig.DEEP_HISTORY_THRESHOLD,
     // How much to target reducing the token count (higher = more cost savings, lower = better context)
-    TARGET_COMPRESSION_RATIO: 0.3,
+    TARGET_COMPRESSION_RATIO: agentConfig.TARGET_COMPRESSION_RATIO,
 };
 
 /**
@@ -47,7 +49,11 @@ The summary will be used as context for an AI assistant to continue the conversa
  * otherwise returns the default prompt.
  */
 function loadSummarizationSystemPrompt(): string {
-    const configFilePath = path.resolve(process.cwd(), 'bot_config', 'system-instruction-summarizer.md');
+    const configFilePath = path.resolve(
+        resolvedProjectRoot,
+        agentConfig.SYSTEM_INSTRUCTION_DIRECTORY, 
+        agentConfig.SUMMARIZER_INSTRUCTION_FILENAME
+    );
     
     try {
         if (fs.existsSync(configFilePath)) {
@@ -116,7 +122,7 @@ export async function summarizeHistory(
     historyToSummarize: Content[],
     mode: 'standard' | 'aggressive' = 'standard'
 ): Promise<string | null> {
-    if (!config.SUMMARIZATION_MODEL_NAME) {
+    if (!llmConfig.SUMMARIZATION_MODEL_NAME) {
         logger.warn('[Gemini Summarization] Summarization model name is not configured. Skipping summarization.');
         return null;
     }
@@ -128,9 +134,9 @@ export async function summarizeHistory(
     const client = getGeminiClient();
     
     // Use a smaller, cheaper model for summarization if cost optimization is critical
-    const modelToUse = mode === 'aggressive' && config.COST_EFFICIENT_SUMMARIZATION_MODEL 
-        ? config.COST_EFFICIENT_SUMMARIZATION_MODEL 
-        : config.SUMMARIZATION_MODEL_NAME;
+    const modelToUse = mode === 'aggressive' && llmConfig.COST_EFFICIENT_SUMMARIZATION_MODEL 
+        ? llmConfig.COST_EFFICIENT_SUMMARIZATION_MODEL 
+        : llmConfig.SUMMARIZATION_MODEL_NAME;
         
     const summarizationModel = client.getGenerativeModel({
         model: modelToUse,

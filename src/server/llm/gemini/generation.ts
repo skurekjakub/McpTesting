@@ -9,7 +9,7 @@ import {
     GenerationConfig
 } from '@google/generative-ai';
 import logger from '../../logger'; // Adjust path
-import { config } from '../../config'; // Adjust path
+import { llmConfig } from '../../config/llm'; // Import directly from llm config module
 import { getGeminiClient } from './client'; // Import from sibling
 
 // Interface for generation options (can be moved to a shared types file later)
@@ -23,11 +23,11 @@ interface GenerateOptions {
 
 function getGenerationModel(systemInstructionText?: string): GenerativeModel {
     const client = getGeminiClient();
-    if (!config.GENERATION_GEMINI_MODEL) {
+    if (!llmConfig.GENERATION_GEMINI_MODEL) {
         throw new Error('Generation Gemini model name is not configured.');
     }
     return client.getGenerativeModel({
-        model: config.GENERATION_GEMINI_MODEL,
+        model: llmConfig.GENERATION_GEMINI_MODEL,
         ...(systemInstructionText && { systemInstruction: { role: 'system', parts: [{ text: systemInstructionText }] } })
     });
 }

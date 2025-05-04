@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { Content } from '@google/generative-ai';
 import logger from '../logger'; // Adjust path if needed
-import { resolvedProjectRoot } from '../config'; // Adjust path if needed
+import { resolvedProjectRoot } from '../config/base'; // Import directly from the base config module
 
 // Define the path for storing session files
 const SESSIONS_DIR = path.join(resolvedProjectRoot, 'chat_sessions');
