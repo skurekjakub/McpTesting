@@ -224,3 +224,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Custom bot configuration files
+bot_config/system-instruction-summarizer.md
+# Keep sample files in version control
+!bot_config/*.sample

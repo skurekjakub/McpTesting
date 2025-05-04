@@ -4,10 +4,56 @@ import {
     GenerativeModel,
     Content
 } from '@google/generative-ai';
+import * as fs from 'fs';
+import * as path from 'path';
 import logger from '../../logger'; // Adjust path
 import { config } from '../../config'; // Adjust path
 import { getGeminiClient } from './client'; // Import from sibling
 import { extractTextFromResult } from './parsing'; // Correct the import path for parsing functions
+
+/**
+ * Default system prompt for summarization when no custom prompt is provided.
+ */
+const DEFAULT_SUMMARIZATION_SYSTEM_PROMPT = `You are an expert AI conversation summarizer with the following responsibilities:
+
+1. Create concise, information-dense summaries of conversations between a human and an AI assistant
+2. Preserve key contextual information that would be necessary for continuing the conversation 
+3. Maintain important details about:
+   - User goals and objectives
+   - Decisions that were made
+   - Questions that were asked and their answers
+   - Tasks that were completed or are in progress
+   - Important code snippets or technical details mentioned
+   - Any unresolved issues or pending actions
+4. Remove redundant or unnecessary information
+5. Format the summary in clear, readable text optimized for an AI to understand context
+6. Never include meta-commentary about the summarization process itself
+
+The summary will be used as context for an AI assistant to continue the conversation, so focus on details that enable seamless continuation.`;
+
+/**
+ * Loads the summarization system prompt from the config file if it exists,
+ * otherwise returns the default prompt.
+ */
+function loadSummarizationSystemPrompt(): string {
+    const configFilePath = path.resolve(process.cwd(), 'bot_config', 'system-instruction-summarizer.md');
+    
+    try {
+        if (fs.existsSync(configFilePath)) {
+            const customPrompt = fs.readFileSync(configFilePath, 'utf8');
+            logger.info('[Gemini Summarization] Loaded custom summarization system prompt from config file');
+            return customPrompt;
+        }
+    } catch (error: any) {
+        logger.warn(`[Gemini Summarization] Error loading custom summarization prompt: ${error?.message}. Using default prompt.`);
+    }
+    
+    logger.info('[Gemini Summarization] Using default summarization system prompt');
+    return DEFAULT_SUMMARIZATION_SYSTEM_PROMPT;
+}
+
+// Load the system prompt when the module initializes
+const SUMMARIZATION_SYSTEM_PROMPT = loadSummarizationSystemPrompt();
 
 /**
  * Summarizes a given portion of the conversation history.
@@ -28,10 +74,14 @@ export async function summarizeHistory(historyToSummarize: Content[]): Promise<s
     });
 
     const summarizationPrompt: Content[] = [
+        {
+            role: 'model',
+            parts: [{ text: SUMMARIZATION_SYSTEM_PROMPT }]
+        },
         ...historyToSummarize,
         {
             role: 'user',
-            parts: [{ text: 'Please summarize the preceding conversation concisely, capturing the key topics and decisions made. Focus on information relevant for continuing the conversation. Respond ONLY with the summary text.' }]
+            parts: [{ text: 'Please summarize the preceding conversation concisely. Focus only on information that would be relevant for continuing the conversation effectively.' }]
         }
     ];
 
