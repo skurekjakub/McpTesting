@@ -151,7 +151,9 @@ def initialize_mcp_servers() -> Dict[str, MCPServer]:
 
             # Resolve the relative path from the project root for the data directory
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            abs_chroma_path = os.path.abspath(os.path.join(project_root, config.CHROMA_PATH))
+            abs_chroma_path = os.path.abspath(
+                os.path.join(project_root, config.CHROMA_PATH)
+            )
 
             chroma_args = [
                 "chroma-mcp",

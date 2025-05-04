@@ -104,9 +104,7 @@ def create_app(config_object: Any = app_config) -> Flask:
             html = "<!DOCTYPE html><html><head><title>Debug Log</title>"
             # Add background and text color to body style
             html += "<style>body {font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 10px; font-size: 0.9em; background-color: #1e1e1e; color: #e0e0e0; }"
-            html += (
-                "h1 { border-bottom: 1px solid #444; padding-bottom: 5px; color: #f8f9fa; } </style>"
-            )
+            html += "h1 { border-bottom: 1px solid #444; padding-bottom: 5px; color: #f8f9fa; } </style>"
             html += "</head><body><h1>Debug Log</h1>\n"
             html += "\n".join(utils.get_debug_logs())
             html += "</body></html>"

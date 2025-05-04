@@ -175,25 +175,40 @@ def validate_config():
         print(f"  Enable Chroma Server: {ENABLE_CHROMA_SERVER}")
         if ENABLE_CHROMA_SERVER:
             if not isinstance(CHROMA_PATH, str) or not CHROMA_PATH:
-                print(f"ERROR: 'chroma_path' in {CONFIG_FILENAME} must be a non-empty string.")
+                print(
+                    f"ERROR: 'chroma_path' in {CONFIG_FILENAME} must be a non-empty string."
+                )
                 valid = False
             else:
                 # Resolve relative path from project root for validation/logging
-                abs_chroma_path = os.path.abspath(os.path.join(project_root, CHROMA_PATH))
+                abs_chroma_path = os.path.abspath(
+                    os.path.join(project_root, CHROMA_PATH)
+                )
                 print(f"  Chroma DB Path: {CHROMA_PATH} (Resolved: {abs_chroma_path})")
                 # Basic check if parent exists, actual creation handled by ChromaDB/server
                 if not os.path.isdir(os.path.dirname(abs_chroma_path)):
-                     print(f"    WARNING: Parent directory for Chroma path '{os.path.dirname(abs_chroma_path)}' does not exist.")
-                     # Not necessarily an error, Chroma might create it.
+                    print(
+                        f"    WARNING: Parent directory for Chroma path '{os.path.dirname(abs_chroma_path)}' does not exist."
+                    )
+                    # Not necessarily an error, Chroma might create it.
 
-            if not isinstance(CHROMA_COLLECTION_NAME, str) or not CHROMA_COLLECTION_NAME:
-                print(f"ERROR: 'chroma_collection_name' in {CONFIG_FILENAME} must be a non-empty string.")
+            if (
+                not isinstance(CHROMA_COLLECTION_NAME, str)
+                or not CHROMA_COLLECTION_NAME
+            ):
+                print(
+                    f"ERROR: 'chroma_collection_name' in {CONFIG_FILENAME} must be a non-empty string."
+                )
                 valid = False
             else:
                 print(f"  Chroma Collection Name: {CHROMA_COLLECTION_NAME}")
 
     # Check if at least one server type is configured/enabled
-    if not FILESYSTEM_TARGET_DIRECTORIES and not ENABLE_MEMORY_SERVER and not ENABLE_CHROMA_SERVER:
+    if (
+        not FILESYSTEM_TARGET_DIRECTORIES
+        and not ENABLE_MEMORY_SERVER
+        and not ENABLE_CHROMA_SERVER
+    ):
         print(
             "ERROR: No MCP servers are configured. Check 'filesystem_target_directories', 'enable_memory_server', and 'enable_chroma_server'."
         )

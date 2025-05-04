@@ -5,6 +5,7 @@ Helper functions for MCP server interactions, including logging and schema clean
 
 from typing import Dict, Any, Optional
 
+
 # --- Logging ---
 # Simple logging function (can be replaced with a more robust logger)
 def _log_error(message: str):
@@ -12,10 +13,12 @@ def _log_error(message: str):
     print(f"MCP_SERVER_ERROR: {message}")
     # In a real app, integrate with chat_processor's logger or a dedicated logging setup
 
+
 def _log_debug(message: str):
     """Basic debug logging."""
     # print(f"MCP_SERVER_DEBUG: {message}") # Optional: Enable for verbose debugging
     pass
+
 
 # --- Helper: Clean Schema ---
 def clean_schema_for_gemini(schema: Dict[str, Any]) -> Optional[Dict[str, Any]]:
