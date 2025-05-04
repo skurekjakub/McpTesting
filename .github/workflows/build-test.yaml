@@ -1,7 +1,7 @@
 # .github/workflows/build-test.yml
 name: Build and Test
 
-on:
+on: # yamllint disable-line rule:truthy
   push:
     branches: [ main ]
   pull_request:
@@ -15,45 +15,32 @@ jobs:
     steps:
     - uses: actions/checkout@v4 # Checks out your repository code
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
       with:
-        # Use the Python version specified in pyproject.toml
-        # Make sure this matches your requires-python range
-        python-version: '3.12'
+        # Specify the Node.js version you want to use
+        # e.g., '18.x', '20.x', 'lts/*'
+        node-version: '20.x'
+        # Optional: Cache npm dependencies globally
+        cache: 'npm'
 
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-      with:
-        virtualenvs-create: true # Recommended to keep envs isolated
-        virtualenvs-in-project: true # Optional: Keep venv in project dir for caching
-        installer-parallel: true
-
-    # Optional: Cache Poetry virtualenv
-    - name: Load cached venv
-      id: cached-poetry-dependencies
+    # Cache node_modules based on package-lock.json
+    - name: Load cached node_modules
+      id: cache-node-modules
       uses: actions/cache@v4
       with:
-        path: .venv
-        key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+        path: node_modules
+        # Use package-lock.json (or yarn.lock/pnpm-lock.yaml) for the cache key
+        key: node-modules-${{ runner.os }}-${{ steps.setup-node.outputs.node-version }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          node-modules-${{ runner.os }}-${{ steps.setup-node.outputs.node-version }}-
 
     - name: Install dependencies
-      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-      run: poetry install --no-interaction --no-root # Install dependencies only
+      # Use npm ci for clean installs based on lock file, faster in CI
+      # If cache missed, this installs everything
+      # If cache hit, this verifies integrity and installs missing packages quickly
+      run: npm ci
 
-    # Install project and dependencies if cache missed or lock file changed
-    - name: Install project and dependencies
-      run: poetry install --no-interaction
-
-    - name: Lint with Ruff
-      run: |
-        poetry run ruff check .
-
-    - name: Check formatting with Ruff
-      run: |
-        poetry run ruff format --check .
-
-    # Add other steps like running tests using poetry run pytest (if you have tests)
-    # - name: Run tests
-    #   run: |
-    #     poetry run pytest
+    - name: Lint code
+      # Assumes you have a lint script in your package.json (e.g., "lint": "eslint .")
+      run: npm run lint
