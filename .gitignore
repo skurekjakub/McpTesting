@@ -176,3 +176,9 @@ config.json
 repomix-output.*
 memory.json
 .flask_session_files
+
+# Cachelib history cache
+.chat_history_cache/
+
+# Flask Session files (if Flask-Session is kept)
+.flask_session_files/

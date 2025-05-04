@@ -12,6 +12,9 @@ from typing import List
 # Default is now an empty list, forcing user to configure
 DEFAULT_FILESYSTEM_TARGET_DIRECTORIES: List[str] = []
 DEFAULT_ENABLE_MEMORY_SERVER = False  # Default to disabled
+DEFAULT_ENABLE_CHROMA_SERVER = True  # Default to enabled
+DEFAULT_CHROMA_PATH = "./chroma_db"  # Default path relative to project root
+DEFAULT_CHROMA_COLLECTION = "chat_memory"  # Default collection name
 DEFAULT_GEMINI_MODEL_FALLBACK = "gemini-1.5-flash"
 DEFAULT_GENERATION_MODEL_FALLBACK = "gemini-1.5-flash"
 DEFAULT_SUMMARIZATION_MODEL_FALLBACK = (
@@ -65,6 +68,20 @@ FILESYSTEM_TARGET_DIRECTORIES: List[str] = config_data.get(
 ENABLE_MEMORY_SERVER: bool = config_data.get(
     "enable_memory_server",  # Get from config.json
     DEFAULT_ENABLE_MEMORY_SERVER,  # Fallback to default (False)
+)
+
+# Load ChromaDB configuration
+ENABLE_CHROMA_SERVER: bool = config_data.get(
+    "enable_chroma_server",
+    DEFAULT_ENABLE_CHROMA_SERVER,
+)
+CHROMA_PATH: str = config_data.get(
+    "chroma_path",
+    DEFAULT_CHROMA_PATH,
+)
+CHROMA_COLLECTION_NAME: str = config_data.get(
+    "chroma_collection_name",
+    DEFAULT_CHROMA_COLLECTION,
 )
 
 DEFAULT_GEMINI_MODEL = config_data.get(
@@ -148,10 +165,52 @@ def validate_config():
     else:
         print(f"  Enable Memory Server: {ENABLE_MEMORY_SERVER}")
 
-    # Check if at least one server type is configured/enabled
-    if not FILESYSTEM_TARGET_DIRECTORIES and not ENABLE_MEMORY_SERVER:
+    # Chroma Server Check
+    if not isinstance(ENABLE_CHROMA_SERVER, bool):
         print(
-            "ERROR: No MCP servers are configured. 'filesystem_target_directories' is empty AND 'enable_memory_server' is false."
+            f"ERROR: 'enable_chroma_server' in {CONFIG_FILENAME} must be a boolean (true or false)."
+        )
+        valid = False
+    else:
+        print(f"  Enable Chroma Server: {ENABLE_CHROMA_SERVER}")
+        if ENABLE_CHROMA_SERVER:
+            if not isinstance(CHROMA_PATH, str) or not CHROMA_PATH:
+                print(
+                    f"ERROR: 'chroma_path' in {CONFIG_FILENAME} must be a non-empty string."
+                )
+                valid = False
+            else:
+                # Resolve relative path from project root for validation/logging
+                abs_chroma_path = os.path.abspath(
+                    os.path.join(project_root, CHROMA_PATH)
+                )
+                print(f"  Chroma DB Path: {CHROMA_PATH} (Resolved: {abs_chroma_path})")
+                # Basic check if parent exists, actual creation handled by ChromaDB/server
+                if not os.path.isdir(os.path.dirname(abs_chroma_path)):
+                    print(
+                        f"    WARNING: Parent directory for Chroma path '{os.path.dirname(abs_chroma_path)}' does not exist."
+                    )
+                    # Not necessarily an error, Chroma might create it.
+
+            if (
+                not isinstance(CHROMA_COLLECTION_NAME, str)
+                or not CHROMA_COLLECTION_NAME
+            ):
+                print(
+                    f"ERROR: 'chroma_collection_name' in {CONFIG_FILENAME} must be a non-empty string."
+                )
+                valid = False
+            else:
+                print(f"  Chroma Collection Name: {CHROMA_COLLECTION_NAME}")
+
+    # Check if at least one server type is configured/enabled
+    if (
+        not FILESYSTEM_TARGET_DIRECTORIES
+        and not ENABLE_MEMORY_SERVER
+        and not ENABLE_CHROMA_SERVER
+    ):
+        print(
+            "ERROR: No MCP servers are configured. Check 'filesystem_target_directories', 'enable_memory_server', and 'enable_chroma_server'."
         )
         valid = False
 

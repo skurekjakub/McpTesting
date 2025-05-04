@@ -102,10 +102,9 @@ def create_app(config_object: Any = app_config) -> Flask:
         @app.route("/debug", methods=["GET"])
         def debug() -> str:
             html = "<!DOCTYPE html><html><head><title>Debug Log</title>"
-            html += "<style>body {font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 10px; font-size: 0.9em;}"
-            html += (
-                "h1 { border-bottom: 1px solid #ccc; padding-bottom: 5px; } </style>"
-            )
+            # Add background and text color to body style
+            html += "<style>body {font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 10px; font-size: 0.9em; background-color: #1e1e1e; color: #e0e0e0; }"
+            html += "h1 { border-bottom: 1px solid #444; padding-bottom: 5px; color: #f8f9fa; } </style>"
             html += "</head><body><h1>Debug Log</h1>\n"
             html += "\n".join(utils.get_debug_logs())
             html += "</body></html>"
@@ -117,7 +116,6 @@ def create_app(config_object: Any = app_config) -> Flask:
     def send_message_wrapper(data):
         socketio_handlers.process_user_message(
             socketio_instance=socketio,
-            background_loop=background_asyncio_loop,
             data=data,
         )
 

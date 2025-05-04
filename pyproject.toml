@@ -6,7 +6,7 @@ authors = [
     {name = "Jakub Skurek",email = "JakubS@kentico.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "chromadb",
     "sentence-transformers",
@@ -24,7 +24,7 @@ dependencies = [
     "google-ai-generativelanguage",
     "google-api-core",
     "google-auth",
-    "google-generativeai",
+    "google-genai",
     "googleapis-common-protos",
     "grpcio",
     "grpcio-status",
@@ -46,7 +46,10 @@ dependencies = [
     "rsa",
     "sniffio",
     "typing_extensions",
-    "Werkzeug"
+    "Werkzeug",
+    "chroma-mcp (>=0.2.2,<0.3.0)",
+    "uv (>=0.7.2,<0.8.0)",
+    "ruff (>=0.11.8,<0.12.0)"
 ]
 
 [build-system]

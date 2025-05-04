@@ -5,27 +5,24 @@ Handles SocketIO events for the Flask application.
 
 import asyncio
 import traceback
-from typing import TYPE_CHECKING, List, Tuple, Optional, Any
-from flask import request, session
-from flask_socketio import emit
-from google.genai import types as genai_types
+from typing import TYPE_CHECKING, List, Optional
+from flask import request
+from flask_socketio import emit, SocketIO
+
+# Import the new cache handler
+from . import history_cache_handler
 
 from ..chat import chat_processor
 from .. import utils
 
-# Type hinting for Flask-SocketIO and asyncio loop
+# Type hinting
 if TYPE_CHECKING:
-    from flask_socketio import SocketIO
-    from asyncio import AbstractEventLoop
+    from google.genai import types as genai_types
 
-    # Define a type alias for deserialized history for clarity
     DeserializedHistory = List[genai_types.Content]
-    # Define a type alias for serialized history
-    SerializedHistory = List[dict[str, Any]]
-
-# --- Helper Functions (Moved from app.py) ---
 
 
+# --- Helper Functions ---
 def _check_initialization(sid: str) -> Optional[str]:
     """Checks if essential components are initialized.
 
@@ -42,97 +39,141 @@ def _check_initialization(sid: str) -> Optional[str]:
     return None
 
 
-def _deserialize_history(
-    session_data: List[dict], sid: str
-) -> Optional["DeserializedHistory"]:
-    """Deserializes Gemini history from session data.
-
-    Args:
-        session_data: Raw history data (list of dicts) from the session.
-        sid: The session ID of the client.
-
-    Returns:
-        A list of genai_types.Content objects, or None if deserialization fails.
-    """
+# --- Background Task ---
+def process_chat_task(
+    user_input: str,
+    client_sid: str,
+    initial_gemini_history: "DeserializedHistory",
+    socketio_instance: SocketIO,
+) -> None:
     try:
-        history: "DeserializedHistory" = [
-            genai_types.Content.model_validate(item) for item in session_data
-        ]
-        return history
+        utils.add_debug_log(
+            f"[{client_sid}] Starting background task thread with input: '{user_input}'"
+        )
+        socketio_instance.emit(
+            "status_update", {"message": "Processing..."}, room=client_sid
+        )
+
+        # Define an async inner function to run the awaitable call
+        async def run_async_processing():
+            return await chat_processor.process_prompt(
+                user_input,
+                initial_gemini_history,
+                internal_step_callback=lambda msg: socketio_instance.emit(
+                    "new_message", {"type": "internal", "text": msg}, room=client_sid
+                ),
+            )
+
+        # Run the async function using asyncio.run()
+        final_response_text: str
+        updated_gemini_history: "DeserializedHistory"
+        (
+            final_response_text,
+            updated_gemini_history,
+        ) = asyncio.run(run_async_processing())
+
+        utils.add_debug_log(
+            f"[{client_sid}] Async processing complete. Final text preview: {(final_response_text[:50] + '...').replace('\\n', ' ')}"
+        )
+
+        response_type = (
+            "error"
+            if final_response_text.lower().startswith(("error:", "warning:"))
+            else "model"
+        )
+        socketio_instance.emit(
+            "new_message",
+            {"type": response_type, "text": final_response_text},
+            room=client_sid,
+        )
+
+        # --- Cache Update using Handler ---
+        current_data = history_cache_handler.get_cached_data(client_sid)
+        current_display_history = current_data.get("chat_history_display", [])
+
+        current_display_history.append({"type": "user", "text": user_input})
+        current_display_history.append(
+            {"type": response_type, "text": final_response_text}
+        )
+
+        serialized_internal_history, serialization_error = (
+            history_cache_handler.serialize_history(updated_gemini_history, client_sid)
+        )
+
+        if serialization_error:
+            socketio_instance.emit(
+                "new_message",
+                {"type": "error", "text": "Error saving full chat history state."},
+                room=client_sid,
+            )
+            current_display_history.append(
+                {"type": "error", "text": "Error saving full chat history state."}
+            )
+
+        save_success = history_cache_handler.save_cached_data(
+            client_sid, serialized_internal_history, current_display_history
+        )
+
+        if save_success:
+            utils.add_debug_log(
+                f"[{client_sid}] Cache update successful via handler. Saved internal history length: {len(updated_gemini_history)}. Saved display history length: {len(current_display_history)}."
+            )
+        else:
+            utils.add_debug_log(f"[{client_sid}] Cache update FAILED via handler.")
+
     except Exception as e:
         error_trace = traceback.format_exc()
         utils.add_debug_log(
-            f"Error deserializing history from session for {sid}: {e}\n{error_trace}"
+            f"[{client_sid}] Critical error in background task: {e}\n{error_trace}"
         )
-        emit(
-            "new_message",
-            {
-                "type": "error",
-                "text": f"Error loading chat history: {e}. History reset.",
-            },
-            room=sid,
-        )
-        session["chat_history_display"] = [
-            {
-                "type": "error",
-                "text": f"Error loading chat history: {e}. History reset.",
-            }
-        ]
-        session["gemini_history_internal"] = []
-        session.modified = True
-        return None
-
-
-def _serialize_history(
-    history: "DeserializedHistory", sid: str
-) -> Tuple["SerializedHistory", bool]:
-    """Serializes Gemini history for session storage.
-
-    Args:
-        history: The list of genai_types.Content objects.
-        sid: The session ID of the client.
-
-    Returns:
-        A tuple containing:
-            - The serialized history (list of dicts).
-            - A boolean indicating if a serialization error occurred.
-    """
-    serialized_history: "SerializedHistory" = []
-    serialization_error_occurred = False
-    for i, item in enumerate(history):
         try:
-            item_dict = item.model_dump(mode="json")
-            serialized_history.append(item_dict)
-        except Exception as e_ser:
-            serialization_error_occurred = True
-            error_trace = traceback.format_exc()
-            utils.add_debug_log(
-                f"Error serializing history item #{i} for {sid}: {e_ser}\n{error_trace}"
+            error_data = history_cache_handler.get_cached_data(client_sid)
+            error_display_history = error_data.get("chat_history_display", [])
+            error_display_history.append({"type": "user", "text": user_input})
+            error_message = f"Critical server error during processing: {e}"
+            socketio_instance.emit(
+                "new_message", {"type": "error", "text": error_message}, room=client_sid
+            )
+            error_display_history.append({"type": "error", "text": error_message})
+
+            internal_hist_to_save_on_err = initial_gemini_history
+            if "updated_gemini_history" in locals():
+                internal_hist_to_save_on_err = updated_gemini_history
+            serialized_internal_history_err, _ = (
+                history_cache_handler.serialize_history(
+                    internal_hist_to_save_on_err, client_sid
+                )
             )
 
-    if serialization_error_occurred:
-        utils.add_debug_log(
-            f"Serialization error occurred for {sid}, message not emitted directly from here."
-        )
-    return serialized_history, serialization_error_occurred
+            history_cache_handler.save_cached_data(
+                client_sid, serialized_internal_history_err, error_display_history
+            )
+            utils.add_debug_log(
+                f"[{client_sid}] Updated cache during error handling via handler."
+            )
+        except Exception as cache_err:
+            utils.add_debug_log(
+                f"[{client_sid}] Failed to update cache during error handling: {cache_err}"
+            )
+
+    finally:
+        socketio_instance.emit("status_update", {"message": "Idle"}, room=client_sid)
 
 
 # --- SocketIO Event Handlers ---
-
-
 def on_connect() -> None:
     """Handles client connection."""
-    utils.add_debug_log(f"Client connected: {request.sid}")
+    client_sid = request.sid
+    utils.add_debug_log(f"Client connected: {client_sid}")
 
 
 def on_disconnect() -> None:
     """Handles client disconnection."""
-    utils.add_debug_log(f"Client disconnected: {request.sid}")
+    client_sid = request.sid
+    utils.add_debug_log(f"Client disconnected: {client_sid}")
 
 
-def process_user_message(
-    socketio_instance: "SocketIO", background_loop: "AbstractEventLoop", data: dict
-) -> None:
+def process_user_message(socketio_instance: SocketIO, data: dict) -> None:
     """Handles incoming user messages and processes the chat logic."""
     user_input = data.get("prompt", "").strip()
     client_sid = request.sid
@@ -141,125 +182,65 @@ def process_user_message(
         emit("error", {"message": "Empty prompt received."}, room=client_sid)
         return
 
-    utils.add_debug_log(f"Received prompt from {client_sid}: '{user_input}'")
+    utils.add_debug_log(f"[{client_sid}] Received prompt: '{user_input}'")
     emit("new_message", {"type": "user", "text": user_input}, room=client_sid)
-
-    chat_history_display = session.get("chat_history_display", [])
-    chat_history_display.append({"type": "user", "text": user_input})
-    session["chat_history_display"] = chat_history_display
-    session.modified = True
 
     init_error = _check_initialization(client_sid)
     if init_error:
-        utils.add_debug_log(f"Initialization error for {client_sid}: {init_error}")
+        utils.add_debug_log(f"[{client_sid}] Initialization error: {init_error}")
         emit("new_message", {"type": "error", "text": init_error}, room=client_sid)
-        chat_history_display.append({"type": "error", "text": init_error})
-        session["chat_history_display"] = chat_history_display
-        session.modified = True
+        try:
+            error_data = history_cache_handler.get_cached_data(client_sid)
+            error_display = error_data.get("chat_history_display", [])
+            error_display.append({"type": "error", "text": init_error})
+            history_cache_handler.save_cached_data(
+                client_sid, error_data.get("gemini_history_internal", []), error_display
+            )
+        except Exception as cache_err:
+            utils.add_debug_log(
+                f"[{client_sid}] Failed to update cache during init error handling: {cache_err}"
+            )
         return
 
-    gemini_history_internal_raw = session.get("gemini_history_internal", [])
-    gemini_history_internal: Optional["DeserializedHistory"] = _deserialize_history(
-        gemini_history_internal_raw, client_sid
+    cached_data = history_cache_handler.get_cached_data(client_sid)
+    gemini_history_internal_raw = cached_data.get("gemini_history_internal", [])
+
+    gemini_history_internal: Optional["DeserializedHistory"] = (
+        history_cache_handler.deserialize_history(
+            gemini_history_internal_raw, client_sid
+        )
     )
     if gemini_history_internal is None:
+        utils.add_debug_log(
+            f"[{client_sid}] Deserialization failed, stopping processing."
+        )
+        try:
+            emit(
+                "new_message",
+                {"type": "error", "text": "Chat history corrupted, resetting."},
+                room=client_sid,
+            )
+            history_cache_handler.reset_cache_for_sid(
+                client_sid, "History corrupted, reset."
+            )
+        except Exception as cache_err:
+            utils.add_debug_log(
+                f"[{client_sid}] Failed to reset cache after deserialization failure: {cache_err}"
+            )
         return
-
-    def emit_internal_step(message: str) -> None:
-        """Callback function to emit internal steps via SocketIO."""
-        try:
-            socketio_instance.emit(
-                "new_message", {"type": "internal", "text": message}, room=client_sid
-            )
-        except Exception as e:
-            utils.add_debug_log(f"Error emitting internal step for {client_sid}: {e}")
-
-    async def process_chat_task() -> None:
-        current_display_history = list(session.get("chat_history_display", []))
-
-        try:
-            utils.add_debug_log(
-                f"Starting process_prompt for {client_sid} in background thread"
-            )
-            socketio_instance.emit(
-                "status_update", {"message": "Processing..."}, room=client_sid
-            )
-
-            final_response_text: str
-            updated_gemini_history: "DeserializedHistory"
-            (
-                final_response_text,
-                updated_gemini_history,
-            ) = await chat_processor.process_prompt(
-                user_input,
-                gemini_history_internal,
-                internal_step_callback=emit_internal_step,
-            )
-
-            utils.add_debug_log(
-                f"Processing complete for {client_sid}. Final text preview: {(final_response_text[:50] + '...').replace('\n', ' ')}"
-            )
-
-            response_type = (
-                "error"
-                if final_response_text.lower().startswith(("error:", "warning:"))
-                else "model"
-            )
-            socketio_instance.emit(
-                "new_message",
-                {"type": response_type, "text": final_response_text},
-                room=client_sid,
-            )
-            current_display_history.append(
-                {"type": response_type, "text": final_response_text}
-            )
-
-            serialized_history: "SerializedHistory"
-            serialization_error: bool
-            serialized_history, serialization_error = _serialize_history(
-                updated_gemini_history, client_sid
-            )
-            session["gemini_history_internal"] = serialized_history
-            if serialization_error:
-                socketio_instance.emit(
-                    "new_message",
-                    {"type": "error", "text": "Error saving full chat history state."},
-                    room=client_sid,
-                )
-                current_display_history.append(
-                    {"type": "error", "text": "Error saving full chat history state."}
-                )
-
-            session["chat_history_display"] = current_display_history
-            session.modified = True
-            utils.add_debug_log(
-                f"Session updated for {client_sid} from background task."
-            )
-
-        except Exception as e:
-            error_trace = traceback.format_exc()
-            utils.add_debug_log(
-                f"Critical error in process_chat_task for {client_sid}: {e}\n{error_trace}"
-            )
-            socketio_instance.emit(
-                "new_message",
-                {
-                    "type": "error",
-                    "text": f"Critical server error during processing: {e}",
-                },
-                room=client_sid,
-            )
-            current_display_history.append(
-                {"type": "error", "text": f"Critical server error: {e}"}
-            )
-            session["chat_history_display"] = current_display_history
-            session.modified = True
-        finally:
-            socketio_instance.emit(
-                "status_update", {"message": "Idle"}, room=client_sid
-            )
+    else:
+        utils.add_debug_log(
+            f"[{client_sid}] Loaded from cache via handler. Deserialized history length BEFORE processing: {len(gemini_history_internal)}"
+        )
 
     utils.add_debug_log(
-        f"Scheduling process_chat_task for {client_sid} on background loop."
+        f"[{client_sid}] Starting background task via socketio.start_background_task."
     )
-    asyncio.run_coroutine_threadsafe(process_chat_task(), background_loop)
+    socketio_instance.start_background_task(
+        process_chat_task,
+        user_input=user_input,
+        client_sid=client_sid,
+        initial_gemini_history=gemini_history_internal,
+        socketio_instance=socketio_instance,
+    )
+    utils.add_debug_log(f"[{client_sid}] Background task scheduled.")
