@@ -8,7 +8,7 @@ from src.app import create_app, socketio  # Import socketio along with create_ap
 
 app = create_app()
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     # You can fetch host and port from config or environment variables
     host = os.environ.get("FLASK_RUN_HOST", "127.0.0.1")
     port = int(os.environ.get("FLASK_RUN_PORT", 5000))
