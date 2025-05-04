@@ -1,0 +1,21 @@
+{
+  "gemini_history_internal": "[{\"role\":\"user\",\"parts\":[{\"text\":\"hullo, how are you\"}]},{\"parts\":[{\"text\":\"Hello! I am functioning as expected and ready to assist you. How can I help you today?\"}],\"role\":\"model\"},{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]},{\"parts\":[{\"text\":\"Hi there! How can I help you today?\"}],\"role\":\"model\"}]",
+  "chat_history_display": [
+    {
+      "type": "user",
+      "text": "hullo, how are you"
+    },
+    {
+      "type": "model",
+      "text": "Hello! I am functioning as expected and ready to assist you. How can I help you today?"
+    },
+    {
+      "type": "user",
+      "text": "hi"
+    },
+    {
+      "type": "model",
+      "text": "Hi there! How can I help you today?"
+    }
+  ]
+}

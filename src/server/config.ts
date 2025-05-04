@@ -13,6 +13,7 @@ const DEFAULT_CHROMA_COLLECTION = 'chat_memory';
 const DEFAULT_GEMINI_MODEL_FALLBACK = 'gemini-1.5-flash';
 const DEFAULT_GENERATION_MODEL_FALLBACK = 'gemini-1.5-flash';
 const DEFAULT_SUMMARIZATION_MODEL_FALLBACK = 'gemini-1.5-flash';
+const DEFAULT_SUMMARIZATION_THRESHOLD_TOKENS = 16384;
 const DEFAULT_MAX_DEBUG_LOG_SIZE = 1500;
 const DEFAULT_LOG_PREVIEW_LEN = 250;
 const CONFIG_FILENAME = 'config.json';
@@ -62,6 +63,7 @@ const ConfigSchema = z.object({
   DEFAULT_GEMINI_MODEL: z.string().default(DEFAULT_GEMINI_MODEL_FALLBACK),
   GENERATION_GEMINI_MODEL: z.string().default(DEFAULT_GENERATION_MODEL_FALLBACK),
   SUMMARIZATION_MODEL_NAME: z.string().default(DEFAULT_SUMMARIZATION_MODEL_FALLBACK),
+  SUMMARIZATION_THRESHOLD_TOKENS: z.number().int().positive().default(DEFAULT_SUMMARIZATION_THRESHOLD_TOKENS),
   MAX_DEBUG_LOG_SIZE: z.number().int().positive().default(DEFAULT_MAX_DEBUG_LOG_SIZE),
   LOG_PREVIEW_LEN: z.number().int().positive().default(DEFAULT_LOG_PREVIEW_LEN),
 });
@@ -77,6 +79,7 @@ const combinedConfig = {
   DEFAULT_GEMINI_MODEL: configData.default_gemini_model, // Let Zod handle default
   GENERATION_GEMINI_MODEL: configData.generation_gemini_model, // Let Zod handle default
   SUMMARIZATION_MODEL_NAME: configData.summarization_gemini_model, // Let Zod handle default
+  SUMMARIZATION_THRESHOLD_TOKENS: configData.summarization_threshold_tokens, // Let Zod handle default
   MAX_DEBUG_LOG_SIZE: configData.max_debug_log_size, // Let Zod handle default
   LOG_PREVIEW_LEN: configData.log_preview_len, // Let Zod handle default
 };
@@ -150,6 +153,7 @@ try {
   logger.info(`  Default Gemini Model: ${validatedConfig.DEFAULT_GEMINI_MODEL}`);
   logger.info(`  Generation Gemini Model: ${validatedConfig.GENERATION_GEMINI_MODEL}`);
   logger.info(`  Summarization Model: ${validatedConfig.SUMMARIZATION_MODEL_NAME}`);
+  logger.info(`  Summarization Threshold: ${validatedConfig.SUMMARIZATION_THRESHOLD_TOKENS} tokens`);
   logger.info(`  Max Debug Log Size: ${validatedConfig.MAX_DEBUG_LOG_SIZE}`);
   logger.info(`  Log Preview Length: ${validatedConfig.LOG_PREVIEW_LEN}`);
 

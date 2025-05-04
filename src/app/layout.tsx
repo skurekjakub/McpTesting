@@ -25,9 +25,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      {/* Add bg-red-500 for diagnostics */}
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col h-screen bg-gray-800 text-white p-4 font-sans bg-red-500`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col h-screen bg-gray-800 text-white p-4 font-sans`}
       >
         {children}
       </body>

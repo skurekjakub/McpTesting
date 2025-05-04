@@ -15,18 +15,17 @@ import path from 'path';
 import { config, isConfigValid, resolvedProjectRoot } from './config';
 import { discoverAndFormatTools, handleFunctionCall } from './tools/mcp/mcp-tool-handler';
 import logger from './logger';
-import {
-  generateContentWithTools,
-  countTokensForText,
-  extractTextFromResult,
-  extractFunctionCallFromResult,
-  countTokensForHistory, // Import countTokensForHistory from gemini-service
-} from './gemini-service';
+// Import from specific submodules
+import { generateContentWithTools } from './llm/gemini/generation';
+import { countTokensForText, countTokensForHistory } from './llm/gemini/tokenization';
+import { extractTextFromResult, extractFunctionCallFromResult } from './llm/gemini/parsing';
+import { summarizeHistory } from './llm/gemini/summarization';
 
 // --- Constants ---
 const MAX_FUNCTION_CALLS_PER_TURN = 25; // Same as Python version
 const SYSTEM_INSTRUCTION_FILENAME = 'system_instruction.md';
 const BOT_CONFIG_DIR = 'bot_config'; // Relative to project root
+const MESSAGES_TO_KEEP_UNSUMMARIZED = 6; // Keep last N messages out of summary
 
 // --- Load System Instruction ---
 let systemInstruction = 'Default system instruction if file loading fails.'; // Fallback
@@ -73,29 +72,60 @@ export async function processPrompt(
 
   let finalResponseText = 'Error: Processing failed to produce a response.';
   const currentTurnHistory: Content[] = [...history];
+  let availableTools: Tool[] = []; // Declare availableTools in the outer scope
 
-  // --- Pre-checks ---
-  if (!isConfigValid) {
-    logger.error('[ChatProcessor] processPrompt called but configuration is invalid.');
-    return ['Error: Server configuration invalid.', history];
-  }
-
-  let availableTools: Tool[] = [];
-
-  // --- Prepare Initial History & Discover Tools ---
+  // --- Prepare Initial History, Discover Tools, MANAGE HISTORY --- 
   try {
     logStep(`Processing prompt: '${userPrompt.substring(0, 100)}${userPrompt.length > 100 ? '...' : ''}'`);
     const userPart: Part = { text: userPrompt };
     currentTurnHistory.push({ role: 'user', parts: [userPart] });
 
-    logStep('Discovering tools...');
-    availableTools = await discoverAndFormatTools();
+    // --- History Management (Summarization) ---
+    const currentTokenCount = await countTokensForHistory(currentTurnHistory);
+    logStep(`Token count before generation: ${currentTokenCount}`);
 
+    if (currentTokenCount > config.SUMMARIZATION_THRESHOLD_TOKENS) {
+      logStep(`History token count (${currentTokenCount}) exceeds threshold (${config.SUMMARIZATION_THRESHOLD_TOKENS}). Attempting summarization.`);
+
+      // Determine which messages to summarize (keep first user message, summarize middle, keep last N)
+      const firstUserMessageIndex = 0; // Assuming first message is always user
+      const startIndexToSummarize = firstUserMessageIndex + 1;
+      const endIndexToSummarize = Math.max(startIndexToSummarize, currentTurnHistory.length - MESSAGES_TO_KEEP_UNSUMMARIZED);
+
+      if (endIndexToSummarize > startIndexToSummarize) {
+        const historyToSummarize = currentTurnHistory.slice(startIndexToSummarize, endIndexToSummarize);
+        const summaryText = await summarizeHistory(historyToSummarize);
+
+        if (summaryText) {
+          // Create the summary message
+          const summaryMessage: Content = {
+            role: 'model', // Or consider 'system' if supported/appropriate
+            parts: [{ text: `Summary of earlier conversation:
+${summaryText}` }]
+          };
+
+          // Replace the summarized section with the summary message
+          currentTurnHistory.splice(startIndexToSummarize, historyToSummarize.length, summaryMessage);
+
+          const newTokenCount = await countTokensForHistory(currentTurnHistory);
+          logStep(`History summarized. New token count: ${newTokenCount}`);
+        } else {
+          logStep('Summarization failed or returned empty. Proceeding with original history (truncation might occur later).');
+        }
+      } else {
+        logStep('Not enough messages to summarize between first and last few.');
+      }
+    } // End of summarization check
+
+    // --- Tool Discovery ---
+    logStep('Discovering tools...');
+    availableTools = await discoverAndFormatTools(); // Assign to the outer scope variable
     const functionTool = availableTools.find(isFunctionDeclarationsTool);
     const declarationCount = functionTool?.functionDeclarations?.length ?? 0;
     logStep(`Discovered ${declarationCount} function declarations for this turn.`);
+
   } catch (error: unknown) {
-    logger.error('[ChatProcessor] Error during initial setup or tool discovery.', error);
+    logger.error('[ChatProcessor] Error during initial setup, history management, or tool discovery.', error);
     return ['Error preparing request.', history];
   }
 
