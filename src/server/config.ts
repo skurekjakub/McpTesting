@@ -1,7 +1,9 @@
 import fs from 'fs';
-import path from 'path';
+import path, { dirname } from 'path'; // Import dirname
+import { fileURLToPath } from 'url'; // Import fileURLToPath
 import dotenv from 'dotenv';
 import { z } from 'zod'; // Using Zod for validation
+import logger from './logger'; // Import the shared logger
 
 dotenv.config(); // Load .env file if present
 
@@ -23,19 +25,23 @@ const BOT_CONFIG_DIR = 'bot_config'; // Relative to project root
 let configData: Record<string, unknown> = {}; // Use Record<string, unknown> instead of any
 let configLoadError: string | null = null;
 
-// Project root is the parent directory of the current file's directory's parent
-const projectRoot = path.resolve(__dirname, '..', '..');
+// Calculate project root using ES Module standards
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const projectRoot = path.resolve(__dirname, '..', '..'); // Now __dirname is correctly defined
+export const resolvedProjectRoot = projectRoot; // Export resolved root path
+
 const configFilePath = path.join(projectRoot, BOT_CONFIG_DIR, CONFIG_FILENAME);
 
 try {
-  console.log(`Attempting to load configuration from: ${configFilePath}`);
+  logger.info(`Attempting to load configuration from: ${configFilePath}`);
   if (fs.existsSync(configFilePath)) {
     const rawData = fs.readFileSync(configFilePath, 'utf-8');
     configData = JSON.parse(rawData);
-    console.log(`Successfully loaded configuration from ${CONFIG_FILENAME}`);
+    logger.info(`Successfully loaded configuration from ${CONFIG_FILENAME}`);
   } else {
     configLoadError = `WARNING: ${CONFIG_FILENAME} not found at ${configFilePath}. Using environment variables and defaults.`;
-    console.warn(configLoadError);
+    logger.warn(configLoadError);
   }
 } catch (error: unknown) { // Use unknown instead of any
   if (error instanceof SyntaxError) {
@@ -45,7 +51,7 @@ try {
   } else {
     configLoadError = `ERROR: Unexpected non-error thrown loading ${CONFIG_FILENAME}: ${String(error)}. Using environment variables and defaults.`;
   }
-  console.error(configLoadError);
+  logger.error(configLoadError);
 }
 
 // --- Define Configuration Schema with Zod ---
@@ -84,19 +90,19 @@ let configValid = false;
 const validationErrors: string[] = [];
 
 try {
-  console.log("Validating configuration...");
+  logger.info("Validating configuration...");
   validatedConfig = ConfigSchema.parse(combinedConfig);
 
   // Additional custom validations
   if (validatedConfig.GEMINI_API_KEY === "YOUR_GEMINI_API_KEY_GOES_HERE") {
     validationErrors.push("ERROR: Gemini API Key is using a placeholder value. Please replace it.");
   } else {
-     console.log("  Gemini API Key: Loaded (source: ENV or config.json)");
+     logger.info("  Gemini API Key: Loaded (source: ENV or config.json)");
   }
 
   // Validate filesystem paths if enabled
   if (validatedConfig.FILESYSTEM_TARGET_DIRECTORIES.length > 0) {
-     console.log(`  Filesystem Target Directories (${validatedConfig.FILESYSTEM_TARGET_DIRECTORIES.length}):`);
+     logger.info(`  Filesystem Target Directories (${validatedConfig.FILESYSTEM_TARGET_DIRECTORIES.length}):`);
      let allFsPathsValid = true;
      validatedConfig.FILESYSTEM_TARGET_DIRECTORIES.forEach((dirPath, i) => {
        const absolutePath = path.resolve(projectRoot, dirPath); // Resolve relative paths
@@ -104,31 +110,31 @@ try {
          validationErrors.push(`ERROR: Filesystem directory '${dirPath}' (Resolved: ${absolutePath}) (item #${i + 1}) not found or is not a directory.`);
          allFsPathsValid = false;
        } else {
-         console.log(`    - '${dirPath}' (Resolved: ${absolutePath}) [OK]`);
+         logger.info(`    - '${dirPath}' (Resolved: ${absolutePath}) [OK]`);
        }
      });
      if (!allFsPathsValid) {
         // Decide if this should invalidate config
      }
   } else {
-      console.log("  Filesystem Target Directories: None configured.");
+      logger.info("  Filesystem Target Directories: None configured.");
   }
 
-  console.log(`  Enable Memory Server: ${validatedConfig.ENABLE_MEMORY_SERVER}`);
-  console.log(`  Enable Chroma Server: ${validatedConfig.ENABLE_CHROMA_SERVER}`);
+  logger.info(`  Enable Memory Server: ${validatedConfig.ENABLE_MEMORY_SERVER}`);
+  logger.info(`  Enable Chroma Server: ${validatedConfig.ENABLE_CHROMA_SERVER}`);
 
   if (validatedConfig.ENABLE_CHROMA_SERVER) {
       if (!validatedConfig.CHROMA_PATH) {
           validationErrors.push("ERROR: 'chroma_path' cannot be empty when Chroma server is enabled.");
       } else {
           const absChromaPath = path.resolve(projectRoot, validatedConfig.CHROMA_PATH);
-          console.log(`  Chroma DB Path: ${validatedConfig.CHROMA_PATH} (Resolved: ${absChromaPath})`);
+          logger.info(`  Chroma DB Path: ${validatedConfig.CHROMA_PATH} (Resolved: ${absChromaPath})`);
           // Note: We don't check existence here, Chroma/server should handle creation
       }
       if (!validatedConfig.CHROMA_COLLECTION_NAME) {
           validationErrors.push("ERROR: 'chroma_collection_name' cannot be empty when Chroma server is enabled.");
       } else {
-           console.log(`  Chroma Collection Name: ${validatedConfig.CHROMA_COLLECTION_NAME}`);
+           logger.info(`  Chroma Collection Name: ${validatedConfig.CHROMA_COLLECTION_NAME}`);
       }
   }
 
@@ -144,39 +150,39 @@ try {
   }
 
   // Log other values
-  console.log(`  Default Gemini Model: ${validatedConfig.DEFAULT_GEMINI_MODEL}`);
-  console.log(`  Generation Gemini Model: ${validatedConfig.GENERATION_GEMINI_MODEL}`);
-  console.log(`  Summarization Model: ${validatedConfig.SUMMARIZATION_MODEL_NAME}`);
-  console.log(`  Max Debug Log Size: ${validatedConfig.MAX_DEBUG_LOG_SIZE}`);
-  console.log(`  Log Preview Length: ${validatedConfig.LOG_PREVIEW_LEN}`);
+  logger.info(`  Default Gemini Model: ${validatedConfig.DEFAULT_GEMINI_MODEL}`);
+  logger.info(`  Generation Gemini Model: ${validatedConfig.GENERATION_GEMINI_MODEL}`);
+  logger.info(`  Summarization Model: ${validatedConfig.SUMMARIZATION_MODEL_NAME}`);
+  logger.info(`  Max Debug Log Size: ${validatedConfig.MAX_DEBUG_LOG_SIZE}`);
+  logger.info(`  Log Preview Length: ${validatedConfig.LOG_PREVIEW_LEN}`);
 
 
   if (validationErrors.length === 0) {
     configValid = true;
-    console.log("--- Configuration validation passed. ---");
+    logger.info("--- Configuration validation passed. ---");
   } else {
-    console.error("--- Configuration errors detected: ---");
-    validationErrors.forEach(err => console.error(`  - ${err}`));
-    console.error("--- Application might not function correctly. ---");
+    logger.error("--- Configuration errors detected: ---");
+    validationErrors.forEach(err => logger.error(`  - ${err}`));
+    logger.error("--- Application might not function correctly. ---");
     // Optionally exit if config is invalid and critical
     // process.exit(1);
   }
 
 } catch (error: unknown) { // Use unknown instead of any
   if (error instanceof z.ZodError) {
-    console.error("--- Configuration validation failed (Zod): ---");
+    logger.error("--- Configuration validation failed (Zod): ---");
     error.errors.forEach(err => {
-      console.error(`  - Path: ${err.path.join('.') || '<root>'}, Message: ${err.message}`);
+      logger.error(`  - Path: ${err.path.join('.') || '<root>'}, Message: ${err.message}`);
       validationErrors.push(`Validation Error (${err.path.join('.') || '<root>'}): ${err.message}`);
     });
   } else if (error instanceof Error) { // Check if it's an Error instance
-    console.error("--- Unexpected error during configuration validation: ---", error);
+    logger.error("--- Unexpected error during configuration validation: ---", error);
      validationErrors.push(`Unexpected Validation Error: ${error.message}`);
   } else {
-    console.error("--- Unexpected non-error thrown during configuration validation: ---", error);
+    logger.error("--- Unexpected non-error thrown during configuration validation: ---", error);
     validationErrors.push(`Unexpected Validation Error: ${String(error)}`);
   }
-  console.error("--- Application might not function correctly. ---");
+  logger.error("--- Application might not function correctly. ---");
   // Set validatedConfig to defaults on error to prevent downstream crashes? Or throw?
   // For now, let it be potentially undefined or partially defined.
   validatedConfig = ConfigSchema.parse({}); // Attempt to get defaults
@@ -186,4 +192,3 @@ try {
 export const config = validatedConfig;
 export const isConfigValid = configValid;
 export const configValidationErrors = validationErrors;
-export const resolvedProjectRoot = projectRoot; // Export resolved root path

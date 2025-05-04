@@ -2,21 +2,26 @@
 import {
   Content,
   Part,
-  GenerateContentResponse,
   FunctionResponsePart,
   Tool,
   HarmCategory,
   HarmBlockThreshold,
   FinishReason,
+  FunctionDeclarationsTool,
 } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
 
 import { config, isConfigValid, resolvedProjectRoot } from './config';
-import { getGeminiClient } from './initializers';
-import { discoverAndFormatTools, handleFunctionCall } from './tool-handler';
-// TODO: Create a logging utility similar to Python's utils.py
-// import { addDebugLog } from './utils';
+import { discoverAndFormatTools, handleFunctionCall } from './tools/mcp/mcp-tool-handler';
+import logger from './logger';
+import {
+  generateContentWithTools,
+  countTokensForText,
+  extractTextFromResult,
+  extractFunctionCallFromResult,
+  countTokensForHistory, // Import countTokensForHistory from gemini-service
+} from './gemini-service';
 
 // --- Constants ---
 const MAX_FUNCTION_CALLS_PER_TURN = 25; // Same as Python version
@@ -29,21 +34,23 @@ const systemInstructionPath = path.join(resolvedProjectRoot, BOT_CONFIG_DIR, SYS
 try {
   if (fs.existsSync(systemInstructionPath)) {
     systemInstruction = fs.readFileSync(systemInstructionPath, 'utf-8').trim();
-    console.log(`Successfully loaded system instruction from ${systemInstructionPath}`);
-    // addDebugLog(`Successfully loaded system instruction from ${systemInstructionPath}`);
+    logger.info(`Successfully loaded system instruction from ${systemInstructionPath}`);
   } else {
-    console.warn(`Warning: System instruction file not found at ${systemInstructionPath}. Using default.`);
-    // addDebugLog(`Warning: System instruction file not found at ${systemInstructionPath}. Using default.`);
+    logger.warn(`System instruction file not found at ${systemInstructionPath}. Using default.`);
   }
 } catch (error: unknown) {
   const errorMsg = error instanceof Error ? error.message : String(error);
-  console.error(`Error loading system instruction from ${systemInstructionPath}: ${errorMsg}. Using default.`);
-  // addDebugLog(`Error loading system instruction from ${systemInstructionPath}: ${errorMsg}. Using default.`);
+  logger.error(`Error loading system instruction from ${systemInstructionPath}: ${errorMsg}. Using default.`);
 }
 
 // --- Type Definitions ---
 // Callback for internal steps (optional)
 type InternalStepCallback = (message: string) => void;
+
+// --- Type Guard ---
+function isFunctionDeclarationsTool(tool: Tool): tool is FunctionDeclarationsTool {
+  return (tool as FunctionDeclarationsTool).functionDeclarations !== undefined;
+}
 
 // --- Core Async Prompt Processing Logic ---
 
@@ -59,63 +66,50 @@ export async function processPrompt(
   history: Content[],
   internalStepCallback?: InternalStepCallback
 ): Promise<[string, Content[]]> {
-  const log = (message: string) => {
-    console.log(`[ChatProcessor] ${message}`);
-    // addDebugLog(`[ChatProcessor] ${message}`);
+  const logStep = (message: string, details?: any) => {
+    logger.info(`[ChatProcessor] ${message}`, details ?? '');
     internalStepCallback?.(message);
-  };
-  const logError = (message: string, error?: unknown) => {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[ChatProcessor] ERROR: ${message}`, errorMsg);
-    // addDebugLog(`[ChatProcessor] ERROR: ${message} ${errorMsg}`);
   };
 
   let finalResponseText = 'Error: Processing failed to produce a response.';
-  const currentTurnHistory: Content[] = [...history]; // Create a mutable copy
+  const currentTurnHistory: Content[] = [...history];
 
   // --- Pre-checks ---
-  const geminiClient = getGeminiClient();
-  if (!geminiClient) {
-    logError('processPrompt called but Gemini client is not initialized.');
-    return ['Error: Chat processor not ready.', history]; // Return original history
-  }
   if (!isConfigValid) {
-    logError('processPrompt called but configuration is invalid.');
+    logger.error('[ChatProcessor] processPrompt called but configuration is invalid.');
     return ['Error: Server configuration invalid.', history];
   }
 
-  let availableTools: Tool[] = []; // Declare availableTools here
+  let availableTools: Tool[] = [];
 
   // --- Prepare Initial History & Discover Tools ---
   try {
-    log(`Processing prompt: '${userPrompt}'`);
+    logStep(`Processing prompt: '${userPrompt.substring(0, 100)}${userPrompt.length > 100 ? '...' : ''}'`);
     const userPart: Part = { text: userPrompt };
     currentTurnHistory.push({ role: 'user', parts: [userPart] });
 
-    // TODO: Implement history management (summarization/truncation) if needed
-    // const managedHistory = await manageHistoryTokens(currentTurnHistory, geminiClient);
-    // currentTurnHistory = managedHistory; // Update history if managed
+    logStep('Discovering tools...');
+    availableTools = await discoverAndFormatTools();
 
-    log('Discovering tools...');
-    availableTools = await discoverAndFormatTools(); // Assign to declared variable
-    log(`Discovered ${availableTools.length} tools for this turn.`);
+    const functionTool = availableTools.find(isFunctionDeclarationsTool);
+    const declarationCount = functionTool?.functionDeclarations?.length ?? 0;
+    logStep(`Discovered ${declarationCount} function declarations for this turn.`);
   } catch (error: unknown) {
-    logError('Error during initial setup or tool discovery.', error);
-    return ['Error preparing request.', history]; // Return original history
+    logger.error('[ChatProcessor] Error during initial setup or tool discovery.', error);
+    return ['Error preparing request.', history];
   }
 
   // --- Main Processing Loop ---
   let functionCallCount = 0;
-  let safetyBypass = false; // Flag to potentially bypass safety check after function call
+  let safetyBypass = false;
 
   while (functionCallCount < MAX_FUNCTION_CALLS_PER_TURN) {
-    log(`--- Starting API Call Loop Iteration ${functionCallCount + 1} ---`);
+    const iteration = functionCallCount + 1;
+    logStep(`--- Starting API Call Loop Iteration ${iteration} ---`);
 
     try {
-      // Prepare the request for the Gemini API
       const generationConfig = {
-        temperature: 0.7, // Adjust as needed
-        // topK, topP, maxOutputTokens can be added here
+        temperature: 0.7,
       };
       const safetySettings: Array<{ category: HarmCategory; threshold: HarmBlockThreshold }> = [
         { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
@@ -124,110 +118,110 @@ export async function processPrompt(
         { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
       ];
 
-      const model = geminiClient.getGenerativeModel({
-        model: config.GENERATION_GEMINI_MODEL,
-        systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] },
-        tools: availableTools.length > 0 ? availableTools : undefined,
-        safetySettings: safetyBypass ? undefined : safetySettings, // Conditionally apply safety settings
+      const result = await generateContentWithTools({
+        history: currentTurnHistory,
+        tools: availableTools,
+        safetySettings: safetyBypass ? undefined : safetySettings,
         generationConfig,
+        systemInstructionText: systemInstruction,
       });
 
-      log(`Sending request to Gemini (iteration ${functionCallCount + 1})...`);
-      const result: GenerateContentResponse = await model.generateContent({ contents: currentTurnHistory });
       const response = result.response;
-
-      // --- Validate Response ---
-      if (!response) {
-        logError('Gemini response was undefined or null.');
-        finalResponseText = 'Error: Gemini returned an empty response.';
-        break;
-      }
-
       const candidate = response.candidates?.[0];
+
       if (!candidate) {
         const feedback = response.promptFeedback;
-        logError(`Gemini response had no candidates. Feedback: ${JSON.stringify(feedback)}`);
+        logger.error('[ChatProcessor] Gemini response had no candidates.', { feedback });
         finalResponseText = `Error: Gemini returned no candidates. ${feedback?.blockReason ? `Reason: ${feedback.blockReason}` : ''}`;
+        currentTurnHistory.push({ role: 'model', parts: [{ text: finalResponseText }] });
         break;
       }
 
-      // Add the candidate's content (text + function calls) to history
       if (candidate.content) {
+        const partSummary = candidate.content.parts
+          .map((p: Part) =>
+            p.functionCall ? `FunctionCall(${p.functionCall.name})` : p.text ? `Text(${p.text.length} chars)` : 'EmptyPart'
+          )
+          .join(', ');
+        logger.info(`[ChatProcessor] Adding Gemini response part to history: Role=${candidate.content.role}, Parts=[${partSummary}]`);
         currentTurnHistory.push(candidate.content);
       } else {
-        logError('Gemini candidate had no content part.');
+        logger.warn('[ChatProcessor] Gemini candidate had no content part.');
       }
 
-      // --- Check for Function Call ---
-      const callPart = candidate.content?.parts?.find((part: Part) => !!part.functionCall);
-      const call = callPart?.functionCall;
+      const call = extractFunctionCallFromResult(result);
 
       if (call) {
         functionCallCount++;
-        log(`Gemini requested function call #${functionCallCount}: ${call.name}`);
-        safetyBypass = true; // Allow potentially unsafe content from tool results
+        logStep(`Gemini requested function call #${functionCallCount}: ${call.name}`);
+        safetyBypass = true;
 
         const toolResponsePayload = await handleFunctionCall(call);
-
-        const functionResponsePart: FunctionResponsePart = {
-          functionResponse: toolResponsePayload, // Assign the result directly
-        };
-
+        const functionResponsePart: FunctionResponsePart = { functionResponse: toolResponsePayload };
         currentTurnHistory.push({ role: 'function', parts: [functionResponsePart] });
-        log(`Added function response for ${call.name} to history.`);
+        logger.info(`[ChatProcessor] Added function response for ${call.name} to history.`);
       } else {
-        // --- No Function Call: Final Response ---
-        log('No function call requested. Processing final response.');
-        safetyBypass = false; // Reset safety bypass
+        logStep('No function call requested. Processing final response.');
+        safetyBypass = false;
 
         const finishReason = candidate.finishReason;
         if (finishReason && [FinishReason.STOP, FinishReason.MAX_TOKENS].includes(finishReason)) {
-          finalResponseText = response.text ? response.text() : '';
-          if (!finalResponseText && candidate.content?.parts) {
-            finalResponseText = candidate.content.parts.map((p: Part) => p.text ?? '').join('');
-          }
-          log(`Gemini finish reason: ${finishReason}. Final text generated.`);
+          finalResponseText = extractTextFromResult(result);
+
+          const tokenCount = await countTokensForText(finalResponseText);
+          logStep(`Gemini finish reason: ${finishReason}. Final text generated (${tokenCount} tokens).`);
+
           if (finishReason === FinishReason.MAX_TOKENS) {
+            logger.warn('[ChatProcessor] Gemini response may be truncated due to MAX_TOKENS finish reason.');
             finalResponseText += '\n\n(Warning: Response may be truncated due to maximum token limit.)';
           }
         } else {
-          logError(`Unexpected finish reason: ${finishReason}. Content: ${JSON.stringify(candidate.content)}`);
+          logger.error(`[ChatProcessor] Unexpected finish reason: ${finishReason}.`, { content: candidate.content });
           finalResponseText = `Error: Unexpected response state from model (Finish Reason: ${finishReason}).`;
         }
-        break; // Exit the loop as we have the final response
+
+        const lastHistoryItem = currentTurnHistory[currentTurnHistory.length - 1];
+        if (
+          lastHistoryItem?.role !== 'model' ||
+          lastHistoryItem.parts.map((p: Part) => p.text ?? '').join('') !== finalResponseText
+        ) {
+          logger.info('[ChatProcessor] Adding final model text response to history.');
+          currentTurnHistory.push({ role: 'model', parts: [{ text: finalResponseText }] });
+        }
+        break;
       }
     } catch (error: unknown) {
-      logError('Error during Gemini API call or processing.', error);
+      logger.error('[ChatProcessor] Error during Gemini processing loop.', error);
       finalResponseText = `An unexpected server error occurred: ${error instanceof Error ? error.message : String(error)}`;
-      break; // Exit loop on error
+      currentTurnHistory.push({ role: 'model', parts: [{ text: finalResponseText }] });
+      break;
     }
-  } // End while loop
-
-  // --- Handle Max Function Calls ---
-  if (functionCallCount >= MAX_FUNCTION_CALLS_PER_TURN) {
-    logError(`Reached maximum function call limit (${MAX_FUNCTION_CALLS_PER_TURN}).`);
-    finalResponseText = `Error: Reached maximum tool call limit (${MAX_FUNCTION_CALLS_PER_TURN}). The request could not be fully completed.`;
   }
 
-  // --- Return Results ---
-  const lastMessage = currentTurnHistory[currentTurnHistory.length - 1];
-  const lastMessageText = lastMessage?.parts?.map((p: Part) => p.text ?? '').join('');
-  if (lastMessage?.role !== 'model' || lastMessageText !== finalResponseText) {
-    if (!(lastMessage?.role === 'function' && functionCallCount < MAX_FUNCTION_CALLS_PER_TURN)) {
-      if (!finalResponseText.startsWith('Error:') || lastMessageText !== finalResponseText) {
-        currentTurnHistory.push({ role: 'model', parts: [{ text: finalResponseText }] });
-        log('Added final text/error response to history.');
+  if (functionCallCount >= MAX_FUNCTION_CALLS_PER_TURN) {
+    logger.error(`[ChatProcessor] Reached maximum function call limit (${MAX_FUNCTION_CALLS_PER_TURN}).`);
+    finalResponseText = `Error: Reached maximum tool call limit (${MAX_FUNCTION_CALLS_PER_TURN}). The request could not be fully completed.`;
+    currentTurnHistory.push({ role: 'model', parts: [{ text: finalResponseText }] });
+  }
+
+  if (currentTurnHistory.length > 1) {
+    const last = currentTurnHistory[currentTurnHistory.length - 1];
+    const secondLast = currentTurnHistory[currentTurnHistory.length - 2];
+    if (
+      last.role === 'model' &&
+      secondLast.role === 'model' &&
+      last.parts.map((p: Part) => p.text ?? '').join('') === secondLast.parts.map((p: Part) => p.text ?? '').join('')
+    ) {
+      if (last.parts[0]?.text?.startsWith('Error:')) {
+        logger.warn('[ChatProcessor] Removing duplicate error message from end of history.');
+        currentTurnHistory.pop();
       }
     }
   }
 
-  log(`Returning final response. History length: ${currentTurnHistory.length}`);
+  // Count tokens in the final history before returning
+  const finalHistoryTokenCount = await countTokensForHistory(currentTurnHistory);
+
+  logStep(`Returning final response. History length: ${currentTurnHistory.length}, Final Token Count: ${finalHistoryTokenCount}`);
   return [finalResponseText, currentTurnHistory];
 }
-
-// TODO: Port history management logic (manageHistoryTokens) if needed
-// async function manageHistoryTokens(history: Content[], client: GoogleGenerativeAI): Promise<Content[]> {
-//    // Placeholder - implement token counting and summarization/truncation
-//    console.log("History management (token counting/summarization) not yet implemented.");
-//    return history;
-// }

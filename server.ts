@@ -4,9 +4,9 @@ import { Server as SocketIOServer } from 'socket.io';
 import next from 'next';
 import dotenv from 'dotenv';
 
-// Import initializers
-import { initializeGeminiClient, startAllMcpServers, stopAllMcpServers } from './src/server/initializers';
-// Import chat processor and history cache
+import logger from './src/server/logger'; // Import the shared logger
+import { initializeGeminiClient } from './src/server/gemini-service'; // Assuming gemini-service exports this or similar
+import { initializeMcpClients, shutdownMcpClients } from './src/server/tools/mcp/mcp-initializer';
 import { processPrompt } from './src/server/chat-processor';
 import {
     getCachedData,
@@ -30,11 +30,17 @@ const nextApp = next({ dev, hostname, port });
 const nextHandler = nextApp.getRequestHandler();
 
 // --- Backend Initialization --- 
-console.log("--- Initializing Backend Components ---");
-const geminiClient = initializeGeminiClient();
-// Start MCP servers (this function handles logging internally)
-startAllMcpServers();
-console.log("--- Backend Initialization Complete ---");
+logger.info("--- Initializing Backend Components ---");
+const geminiClient = initializeGeminiClient(); // Uses logger internally
+// Call the renamed MCP client initialization function
+initializeMcpClients()
+    .then(() => {
+        logger.info("MCP Client initialization sequence initiated.");
+    })
+    .catch(err => {
+        logger.error("Error initiating MCP client initialization sequence:", err);
+    });
+logger.info("--- Backend Initialization Complete (MCP clients initializing asynchronously) ---");
 // ---------------------------------------------
 
 nextApp.prepare().then(() => {
@@ -52,20 +58,22 @@ nextApp.prepare().then(() => {
   // --- Socket.IO Event Handlers ---
   io.on('connection', (socket) => {
     const clientSid = socket.id;
-    console.log(`Socket connected: ${clientSid}`);
+    logger.info({ sid: clientSid }, `Socket connected: ${clientSid}`);
 
     // --- Send Message Handler ---
     socket.on('send_message', async (data) => {
         const userPrompt = data?.prompt?.trim();
         if (!userPrompt) {
+            logger.warn({ sid: clientSid }, 'Empty prompt received.');
             socket.emit('error', { message: 'Empty prompt received.' });
             return;
         }
 
-        console.log(`[${clientSid}] Received prompt: '${userPrompt}'`);
+        logger.info({ sid: clientSid, prompt: userPrompt }, `Received prompt`);
 
         // Define callback for internal steps
         const internalStepCallback = (message: string) => {
+            logger.debug({ sid: clientSid }, `Internal step: ${message}`);
             socket.emit('new_message', { type: 'internal', text: message });
         };
 
@@ -75,56 +83,58 @@ nextApp.prepare().then(() => {
             const initialInternalHistory = deserializeHistory(cachedData.gemini_history_internal);
 
             if (initialInternalHistory === null) {
-                console.error(`[${clientSid}] Failed to deserialize history, resetting.`);
+                logger.error({ sid: clientSid }, 'Failed to deserialize history, resetting.');
                 resetCacheForSid(clientSid, "Chat history corrupted, resetting.");
                 socket.emit('new_message', { type: 'error', text: 'Chat history corrupted, resetting.' });
-                // Optionally disconnect the user or prevent further processing
                 return;
             }
 
-            console.log(`[${clientSid}] History length before processing: ${initialInternalHistory.length}`);
+            logger.info({ sid: clientSid, historyLength: initialInternalHistory.length }, `History length before processing`);
             socket.emit('status_update', { message: 'Processing...' });
 
-            // 2. Process the prompt
+            // 2. Process the prompt (uses logger internally)
             const [finalResponseText, updatedInternalHistory] = await processPrompt(
                 userPrompt,
                 initialInternalHistory,
                 internalStepCallback
             );
 
-            // 3. Determine response type and emit to client
+            // 3. Emit response
             const responseType: DisplayHistoryItem['type'] = finalResponseText.toLowerCase().startsWith('error:') ? 'error' : 'model';
+            logger.info({ sid: clientSid, responseType, responseLength: finalResponseText.length }, `Emitting final response`);
             socket.emit('new_message', { type: responseType, text: finalResponseText });
 
             // 4. Prepare data for saving
-            const currentDisplayHistory = cachedData.chat_history_display; // Get latest display history
+            const currentDisplayHistory = cachedData.chat_history_display;
             currentDisplayHistory.push({ type: 'user', text: userPrompt });
             currentDisplayHistory.push({ type: responseType, text: finalResponseText });
 
             const [serializedInternalHistory, serializationError] = serializeHistory(updatedInternalHistory);
 
             if (serializationError) {
+                logger.error({ sid: clientSid }, 'Error serializing internal history for saving.');
                 socket.emit('new_message', { type: 'error', text: 'Error saving full chat history state.' });
                 currentDisplayHistory.push({ type: 'error', text: 'Error saving full chat history state.' });
             }
 
-            // 5. Save updated history to cache
+            // 5. Save history
             saveCachedData(clientSid, serializedInternalHistory, currentDisplayHistory);
-            console.log(`[${clientSid}] Saved history. Internal: ${updatedInternalHistory.length}, Display: ${currentDisplayHistory.length}`);
+            logger.info({ sid: clientSid, internalLen: updatedInternalHistory.length, displayLen: currentDisplayHistory.length }, `Saved history`);
 
         } catch (error: unknown) {
             const errorMsg = error instanceof Error ? error.message : String(error);
-            console.error(`[${clientSid}] Critical error processing message:`, error);
+            logger.error({ sid: clientSid, error: errorMsg, stack: (error instanceof Error ? error.stack : undefined) }, `Critical error processing message`);
             socket.emit('new_message', { type: 'error', text: `Critical server error: ${errorMsg}` });
             // Attempt to save error state
             try {
                 const errorData = getCachedData(clientSid);
                 const errorDisplay = errorData.chat_history_display;
-                errorDisplay.push({ type: 'user', text: userPrompt });
+                errorDisplay.push({ type: 'user', text: userPrompt }); // Add user prompt that caused error
                 errorDisplay.push({ type: 'error', text: `Critical server error: ${errorMsg}` });
                 saveCachedData(clientSid, errorData.gemini_history_internal, errorDisplay);
-            } catch (cacheError) {
-                console.error(`[${clientSid}] Failed to save error state to cache:`, cacheError);
+                 logger.info({ sid: clientSid }, `Saved error state to cache`);
+            } catch (cacheError: any) {
+                logger.error({ sid: clientSid, error: cacheError?.message }, `Failed to save error state to cache`);
             }
         } finally {
             socket.emit('status_update', { message: 'Idle' });
@@ -133,22 +143,20 @@ nextApp.prepare().then(() => {
 
     // --- Disconnect Handler ---
     socket.on('disconnect', (reason) => {
-      console.log(`Socket disconnected: ${clientSid}, reason: ${reason}`);
-      // Clean up history for this client when they disconnect
+      logger.info({ sid: clientSid, reason }, `Socket disconnected`);
       deleteCacheForSid(clientSid);
     });
 
     // --- Error Handler ---
     socket.on('error', (error) => {
-        console.error(`Socket error from ${clientSid}:`, error);
+        logger.error({ sid: clientSid, error: error?.message }, `Socket error reported`);
     });
 
-    // --- Reset Chat Handler (Optional) ---
+    // --- Reset Chat Handler ---
     socket.on('reset_chat', () => {
-        console.log(`[${clientSid}] Received reset_chat request.`);
+        logger.info({ sid: clientSid }, `Received reset_chat request.`);
         resetCacheForSid(clientSid, "Chat history reset.");
-        // Optionally emit confirmation or history_reset event back
-        socket.emit('history_reset'); // Let frontend know
+        socket.emit('history_reset');
     });
 
   });
@@ -162,25 +170,37 @@ nextApp.prepare().then(() => {
   // --------------------
 
   httpServer.listen(port, hostname, () => {
-    console.log(`\n🚀 Custom Server ready on http://${hostname}:${port}`);
-    console.log(`   Socket.IO server initialized.`);
-    // TODO: Add logs for Gemini client and MCP server status
+    logger.info(`🚀 Custom Server ready on http://${hostname}:${port}`);
+    logger.info(`   Socket.IO server initialized.`);
+    // Log status of initialized components
+    if (geminiClient) {
+        logger.info(`   Gemini Client Initialized: OK`);
+    } else {
+        logger.warn(`   Gemini Client Initialized: FAILED (Check API Key/Config)`);
+    }
+    // MCP status check can be added here later if needed (e.g., checking client states)
+
   }).on('error', (err) => {
-    console.error('Server failed to start:', err);
+    logger.error({ error: err }, 'Server failed to start');
     process.exit(1);
   });
 
 }).catch((ex) => {
-  console.error("Error preparing Next.js app:", ex.stack);
+  logger.error({ error: ex }, "Error preparing Next.js app");
   process.exit(1);
 });
 
 // --- Graceful Shutdown --- 
-function gracefulShutdown(signal: string) {
-  console.log(`\nReceived ${signal}. Shutting down gracefully...`);
-  stopAllMcpServers(); // Stop MCP servers
-  // Add any other cleanup tasks here
-  console.log("Shutdown complete. Exiting.");
+async function gracefulShutdown(signal: string) {
+  logger.info(`Received ${signal}. Shutting down gracefully...`);
+  try {
+    // Call the renamed MCP client shutdown function
+    await shutdownMcpClients();
+  } catch (error) {
+    logger.error("Error during MCP client shutdown:", error);
+  }
+  // Add any other cleanup tasks here (e.g., close database connections)
+  logger.info("Shutdown complete. Exiting.");
   process.exit(0);
 }
 

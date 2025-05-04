@@ -1,0 +1,6 @@
+{
+  "watch": ["src/**/*.ts", "server.ts", "*.mjs"],
+  "ext": "ts,mjs,json",
+  "ignore": ["chroma_db/**", ".next/**", "node_modules/**"],
+  "exec": "tsx server.ts"
+}
