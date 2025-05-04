@@ -7,7 +7,6 @@ Includes a system instruction to guide model behavior.
 """
 
 import traceback
-import json
 from typing import Dict, List, Tuple, Optional, Callable
 
 # --- Google Generative AI SDK Imports ---

@@ -48,7 +48,8 @@ dependencies = [
     "typing_extensions",
     "Werkzeug",
     "chroma-mcp (>=0.2.2,<0.3.0)",
-    "uv (>=0.7.2,<0.8.0)"
+    "uv (>=0.7.2,<0.8.0)",
+    "ruff (>=0.11.8,<0.12.0)"
 ]
 
 [build-system]
