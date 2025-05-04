@@ -118,7 +118,6 @@ def create_app(config_object: Any = app_config) -> Flask:
     def send_message_wrapper(data):
         socketio_handlers.process_user_message(
             socketio_instance=socketio,
-            background_loop=background_asyncio_loop,
             data=data,
         )
 

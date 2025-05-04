@@ -177,3 +177,9 @@ repomix-output.*
 memory.json
 .flask_session_files
 chroma_db
+
+# Cachelib history cache
+.chat_history_cache/
+
+# Flask Session files (if Flask-Session is kept)
+.flask_session_files/
