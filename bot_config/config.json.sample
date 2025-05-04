@@ -13,6 +13,13 @@
   "default_gemini_model": "gemini-1.5-flash",
   "summarization_gemini_model": "gemini-2.0-flash",
   "generation_gemini_model": "gemini-1.5-flash",
+  
+  "// Cost optimization settings": "The following settings help control API costs",
+  "cost_optimization_enabled": true,
+  "cost_efficient_summarization_model": "gemini-1.0-pro",
+  "recent_messages_to_preserve": 6,
+  "deep_history_threshold": 8000,
+  
   "max_debug_log_size": 1500,
   "log_preview_len": 250
 }

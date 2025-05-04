@@ -19,7 +19,7 @@ import logger from './logger';
 import { generateContentWithTools } from './llm/gemini/generation';
 import { countTokensForText, countTokensForHistory } from './llm/gemini/tokenization';
 import { extractTextFromResult, extractFunctionCallFromResult } from './llm/gemini/parsing';
-import { summarizeHistory } from './llm/gemini/summarization';
+import { summarizeHistory, summarizeHistoryCostOptimized } from './llm/gemini/summarization';
 
 // --- Constants ---
 const MAX_FUNCTION_CALLS_PER_TURN = 25; // Same as Python version
@@ -87,33 +87,47 @@ export async function processPrompt(
     if (currentTokenCount > config.SUMMARIZATION_THRESHOLD_TOKENS) {
       logStep(`History token count (${currentTokenCount}) exceeds threshold (${config.SUMMARIZATION_THRESHOLD_TOKENS}). Attempting summarization.`);
 
-      // Determine which messages to summarize (keep first user message, summarize middle, keep last N)
-      const firstUserMessageIndex = 0; // Assuming first message is always user
-      const startIndexToSummarize = firstUserMessageIndex + 1;
-      const endIndexToSummarize = Math.max(startIndexToSummarize, currentTurnHistory.length - MESSAGES_TO_KEEP_UNSUMMARIZED);
-
-      if (endIndexToSummarize > startIndexToSummarize) {
-        const historyToSummarize = currentTurnHistory.slice(startIndexToSummarize, endIndexToSummarize);
-        const summaryText = await summarizeHistory(historyToSummarize);
-
-        if (summaryText) {
-          // Create the summary message
-          const summaryMessage: Content = {
-            role: 'model', // Or consider 'system' if supported/appropriate
-            parts: [{ text: `Summary of earlier conversation:
-${summaryText}` }]
-          };
-
-          // Replace the summarized section with the summary message
-          currentTurnHistory.splice(startIndexToSummarize, historyToSummarize.length, summaryMessage);
-
-          const newTokenCount = await countTokensForHistory(currentTurnHistory);
-          logStep(`History summarized. New token count: ${newTokenCount}`);
-        } else {
-          logStep('Summarization failed or returned empty. Proceeding with original history (truncation might occur later).');
-        }
+      // Use the cost-optimized summarization if enabled in config
+      if (config.COST_OPTIMIZATION_ENABLED) {
+        logStep('Using cost-optimized progressive summarization strategy');
+        
+        // This returns a new array with summarized older content + preserved recent messages
+        const summarizedHistory = await summarizeHistoryCostOptimized(currentTurnHistory);
+        
+        // Replace the current turn history with the summarized version
+        currentTurnHistory.splice(0, currentTurnHistory.length, ...summarizedHistory);
+        
+        const newTokenCount = await countTokensForHistory(currentTurnHistory);
+        logStep(`History summarized with cost optimization. New token count: ${newTokenCount}`);
       } else {
-        logStep('Not enough messages to summarize between first and last few.');
+        // Original summarization method (kept for backward compatibility)
+        const firstUserMessageIndex = 0; // Assuming first message is always user
+        const startIndexToSummarize = firstUserMessageIndex + 1;
+        const endIndexToSummarize = Math.max(startIndexToSummarize, currentTurnHistory.length - MESSAGES_TO_KEEP_UNSUMMARIZED);
+
+        if (endIndexToSummarize > startIndexToSummarize) {
+          const historyToSummarize = currentTurnHistory.slice(startIndexToSummarize, endIndexToSummarize);
+          const summaryText = await summarizeHistory(historyToSummarize);
+
+          if (summaryText) {
+            // Create the summary message
+            const summaryMessage: Content = {
+              role: 'model',
+              parts: [{ text: `Summary of earlier conversation:
+${summaryText}` }]
+            };
+
+            // Replace the summarized section with the summary message
+            currentTurnHistory.splice(startIndexToSummarize, historyToSummarize.length, summaryMessage);
+
+            const newTokenCount = await countTokensForHistory(currentTurnHistory);
+            logStep(`History summarized using traditional method. New token count: ${newTokenCount}`);
+          } else {
+            logStep('Summarization failed or returned empty. Proceeding with original history (truncation might occur later).');
+          }
+        } else {
+          logStep('Not enough messages to summarize between first and last few.');
+        }
       }
     } // End of summarization check
 
