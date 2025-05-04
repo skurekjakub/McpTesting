@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MCPBro
+
+MCPBro is an AI agent application leveraging the Model Context Protocol (MCP) to interact with various data sources and provide intelligent responses.
+
+## Features
+
+- **AI-powered chat interface** built with Next.js
+- **Model Context Protocol (MCP) integration** for file system, memory, and vector database access
+- **Gemini AI integration** for natural language understanding and generation
+- **Context-aware conversations** with history management and summarization
+- **Modular configuration system** for easy customization and extension
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js (v18 or newer)
+- npm or yarn
+- Google Gemini API key
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/mcpbro.git
+cd mcpbro
+```
+
+2. Install dependencies:
+```bash
+npm install
+# or
+yarn install
+```
+
+3. Create your configuration:
+```bash
+cp bot_config/config.json.sample bot_config/config.json
+```
+
+4. Edit `bot_config/config.json` to add your Gemini API key and adjust settings as needed.
+
+5. Run the development server:
 ```bash
 npm run dev
 # or
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+6. Open [http://localhost:3000](http://localhost:3000) with your browser to see the application.
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## System Instructions
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Custom system instructions can be provided in the following files:
 
-## Learn More
+- Main system instruction: `bot_config/system_instruction.md`
+- Summarizer instruction: `bot_config/system-instruction-summarizer.md`
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+MCPBro follows a modular architecture:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **UI Layer**: Next.js frontend with React components
+- **Agent Layer**: Manages conversation state, history, and tool orchestration
+- **LLM Layer**: Handles interaction with Gemini AI models
+- **Tool Layer**: Integrates with MCP servers for accessing various data sources
 
-## Deploy on Vercel
+## MCP Server Integration
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+MCPBro integrates with multiple MCP servers:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Filesystem**: Provides access to project files
+- **Memory**: Enables persistent memory storage
+- **ChromaDB**: Vector database for semantic search
+
+## Development
+
+### Linting
+
+```bash
+npm run lint
+# or
+yarn lint
+```
+
+### Building for Production
+
+```bash
+npm run build
+# or
+yarn build
+```
+
+## License
+
+[MIT](LICENSE)
+
+## Acknowledgments
+
+- [Next.js](https://nextjs.org)
+- [Model Context Protocol](https://modelcontextprotocol.github.io/)
+- [Google Generative AI](https://ai.google.dev/)
