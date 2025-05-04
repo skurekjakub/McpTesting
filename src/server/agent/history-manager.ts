@@ -2,17 +2,32 @@
 import { Content } from '@google/generative-ai';
 
 import logger from '../logger';
-import { agentConfig as configModuleAgentConfig } from './agent-config';
+import { agentConfig } from './agent-config';
 import { countTokensForHistory } from '../llm/gemini/tokenization';
-import { summarizeHistory, summarizeHistoryCostOptimized } from '../llm/gemini/summarization';
+
+// Import specialized services from history subfolder
+import { ImportanceScorer } from './history/importance-scorer';
+import { SummarizationStrategyFactory } from './history/summarization-strategies';
+import { HistoryCleanupService } from './history/cleanup-service';
+import { MessageUtils } from './history/message-utils';
+import { LogCallback } from './history/types';
 
 /**
  * Manages conversation history, including summarization when needed.
- * Follows Single Responsibility Principle by focusing purely on history management.
+ * Acts as a facade for the various specialized history management services.
  */
 export class HistoryManager {
+  private importanceScorer: ImportanceScorer;
+  private cleanupService: HistoryCleanupService;
+  
+  constructor() {
+    this.importanceScorer = new ImportanceScorer();
+    this.cleanupService = new HistoryCleanupService();
+  }
+
   /**
    * Processes the conversation history, applying summarization if token threshold is exceeded.
+   * This is the main entry point for history management.
    * 
    * @param history The current conversation history
    * @param newUserMessage Optional new user message to append before processing
@@ -22,22 +37,19 @@ export class HistoryManager {
   async processHistory(
     history: Content[], 
     newUserMessage?: string,
-    logCallback?: (message: string) => void
+    logCallback?: LogCallback
   ): Promise<Content[]> {
     const logStep = (message: string) => {
-      logger.info(`${configModuleAgentConfig.logging.historyManager} ${message}`);
+      logger.info(`${agentConfig.logging.historyManager} ${message}`);
       if (logCallback) logCallback(message);
     };
     
     // Create a copy to work with
-    const processedHistory = [...history];
+    let processedHistory = [...history];
     
     // Add new message if provided
     if (newUserMessage) {
-      processedHistory.push({
-        role: 'user',
-        parts: [{ text: newUserMessage }]
-      });
+      processedHistory.push(MessageUtils.createUserMessage(newUserMessage));
       logStep(`Added user message (${newUserMessage.length} chars) to history`);
     }
     
@@ -45,61 +57,37 @@ export class HistoryManager {
     const tokenCount = await countTokensForHistory(processedHistory);
     logStep(`Current history token count: ${tokenCount}`);
     
-    if (tokenCount <= configModuleAgentConfig.summarization.threshold) {
+    if (tokenCount <= agentConfig.summarization.threshold) {
       return processedHistory; // No summarization needed
     }
     
-    logStep(`Token threshold (${configModuleAgentConfig.summarization.threshold}) exceeded. Applying summarization.`);
+    logStep(`Token threshold (${agentConfig.summarization.threshold}) exceeded. Applying summarization.`);
+
+    // Get the appropriate summarization strategy based on configuration
+    const useImportanceScoring = agentConfig.importanceScoring.enabled;
+    const useCostOptimization = agentConfig.summarization.costOptimizationEnabled;
     
-    // Apply appropriate summarization strategy
-    if (configModuleAgentConfig.summarization.costOptimizationEnabled) {
-      logStep('Using cost-optimized progressive summarization strategy');
-      const summarizedHistory = await summarizeHistoryCostOptimized(processedHistory);
-      
-      const newTokenCount = await countTokensForHistory(summarizedHistory);
-      logStep(`History summarized with cost optimization. New token count: ${newTokenCount}`);
-      
-      return summarizedHistory;
+    // Create the appropriate strategy via factory
+    const strategy = SummarizationStrategyFactory.createStrategy(
+      useImportanceScoring,
+      useCostOptimization
+    );
+    
+    logStep(`Using ${strategy.name} summarization strategy`);
+    
+    // Apply importance scoring if the strategy requires it
+    if (useImportanceScoring) {
+      logStep('Applying contextual importance scoring to identify key messages to preserve');
+      const scoredHistory = this.importanceScorer.scoreHistoryImportance(processedHistory);
+      processedHistory = await strategy.summarize(scoredHistory);
     } else {
-      // Traditional summarization approach
-      const firstUserMessageIndex = 0; // Assuming first message is always user
-      const startIndexToSummarize = firstUserMessageIndex + 1;
-      const endIndexToSummarize = Math.max(
-        startIndexToSummarize, 
-        processedHistory.length - configModuleAgentConfig.history.messagesToKeepUnsummarized
-      );
-
-      if (endIndexToSummarize <= startIndexToSummarize) {
-        logStep('Not enough messages to summarize between first and recent messages.');
-        return processedHistory;
-      }
-      
-      const historyToSummarize = processedHistory.slice(startIndexToSummarize, endIndexToSummarize);
-      const summaryText = await summarizeHistory(historyToSummarize);
-
-      if (!summaryText) {
-        logStep('Summarization failed or returned empty. Proceeding with original history.');
-        return processedHistory;
-      }
-
-      // Create the summary message
-      const summaryMessage: Content = {
-        role: 'model',
-        parts: [{ text: `${configModuleAgentConfig.history.summaryMessagePrefix}${summaryText}` }]
-      };
-
-      // Replace the summarized section with the summary message
-      const summarizedHistory = [
-        ...processedHistory.slice(0, startIndexToSummarize),
-        summaryMessage,
-        ...processedHistory.slice(endIndexToSummarize)
-      ];
-
-      const newTokenCount = await countTokensForHistory(summarizedHistory);
-      logStep(`History summarized using traditional method. New token count: ${newTokenCount}`);
-      
-      return summarizedHistory;
+      processedHistory = await strategy.summarize(processedHistory);
     }
+    
+    const newTokenCount = await countTokensForHistory(processedHistory);
+    logStep(`History summarized successfully. New token count: ${newTokenCount}`);
+    
+    return processedHistory;
   }
   
   /**
@@ -107,30 +95,13 @@ export class HistoryManager {
    * If so, remove the last message to avoid redundancy.
    */
   cleanupDuplicateResponses(history: Content[]): Content[] {
-    if (history.length < 2) return history;
-    
-    const last = history[history.length - 1];
-    const secondLast = history[history.length - 2];
-    
-    // Check if both are model messages with identical text content
-    if (
-      last.role === 'model' &&
-      secondLast.role === 'model' &&
-      this.getTextContent(last) === this.getTextContent(secondLast)
-    ) {
-      logger.warn(`${configModuleAgentConfig.logging.historyManager} Removing duplicate model message from end of history.`);
-      return history.slice(0, history.length - 1);
-    }
-    
-    return history;
+    return this.cleanupService.cleanupDuplicateResponses(history);
   }
   
   /**
-   * Helper to extract text content from a Content object
+   * Removes empty messages from the history
    */
-  private getTextContent(content: Content): string {
-    return content.parts
-      .map(part => typeof part === 'object' && 'text' in part ? part.text : '')
-      .join('');
+  cleanupEmptyMessages(history: Content[]): Content[] {
+    return this.cleanupService.removeEmptyMessages(history);
   }
 }

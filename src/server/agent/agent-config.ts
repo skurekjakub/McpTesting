@@ -2,6 +2,20 @@
 import { agentConfig as configuredAgentOptions } from '../config/agent';
 import { llmConfig } from '../config/llm';
 
+// --- Internal defaults for importance scoring ---
+const DEFAULT_IMPORTANCE_SCORING_ENABLED = true;
+const DEFAULT_KEYWORD_IMPORTANCE_WEIGHT = 0.35;
+const DEFAULT_RECENCY_IMPORTANCE_WEIGHT = 0.25;
+const DEFAULT_LENGTH_IMPORTANCE_WEIGHT = 0.15;
+const DEFAULT_RESPONSE_IMPORTANCE_WEIGHT = 0.25;
+const DEFAULT_MIN_IMPORTANCE_SCORE_TO_PRESERVE = 0.7;
+const DEFAULT_IMPORTANT_KEYWORDS = [
+  'important', 'critical', 'remember', 'key', 'essential', 'crucial',
+  'necessary', 'vital', 'significant', 'priority', 'must', 'should',
+  'function', 'class', 'method', 'implementation', 'architecture', 
+  'design', 'pattern', 'solution', 'approach', 'decision'
+];
+
 /**
  * Configuration parameters specific to the agent architecture.
  * Centralizes all configuration values that were previously hardcoded
@@ -41,6 +55,17 @@ export const agentConfig = {
     recentMessagesToPreserve: configuredAgentOptions.RECENT_MESSAGES_TO_PRESERVE,
     deepHistoryThreshold: configuredAgentOptions.DEEP_HISTORY_THRESHOLD,
     targetCompressionRatio: configuredAgentOptions.TARGET_COMPRESSION_RATIO,
+  },
+  
+  // Contextual importance scoring settings - internal implementation detail
+  importanceScoring: {
+    enabled: DEFAULT_IMPORTANCE_SCORING_ENABLED,
+    keywordImportanceWeight: DEFAULT_KEYWORD_IMPORTANCE_WEIGHT,
+    recencyImportanceWeight: DEFAULT_RECENCY_IMPORTANCE_WEIGHT,
+    lengthImportanceWeight: DEFAULT_LENGTH_IMPORTANCE_WEIGHT,
+    responseImportanceWeight: DEFAULT_RESPONSE_IMPORTANCE_WEIGHT, 
+    importantKeywords: DEFAULT_IMPORTANT_KEYWORDS,
+    minImportanceScoreToPreserve: DEFAULT_MIN_IMPORTANCE_SCORE_TO_PRESERVE,
   },
   
   // Logging prefixes for consistent logging patterns
