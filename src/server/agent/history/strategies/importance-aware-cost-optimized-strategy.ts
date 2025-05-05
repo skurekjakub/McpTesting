@@ -4,7 +4,14 @@ import { agentConfig } from '../../agent-config';
 import { summarizeHistory } from '../../../llm/gemini/summarization';
 import { countTokensForHistory } from '../../../llm/gemini/tokenization';
 import { BaseSummarizationStrategy } from './base-strategy';
-import { ScoredMessage } from '../types';
+import { ScoredMessage, SummarizationMode } from '../types'; // Import SummarizationMode
+
+/**
+ * Options for base summarization strategies
+ */
+interface BaseStrategyOptions {
+  summarizationAggressiveness?: 'normal' | 'high';
+}
 
 /**
  * Importance-aware cost-optimized summarization that preserves important messages while 
@@ -12,7 +19,14 @@ import { ScoredMessage } from '../types';
  */
 export class ImportanceAwareCostOptimizedStrategy extends BaseSummarizationStrategy {
   readonly name = 'importance-aware-cost-optimized';
-  
+  private summarizationMode: SummarizationMode;
+
+  constructor(options: BaseStrategyOptions = {}) {
+    super();
+    this.summarizationMode = options.summarizationAggressiveness === 'high' ? 'aggressive' : 'standard';
+    this.log(`Initialized with base summarization mode: ${this.summarizationMode}`);
+  }
+
   async summarize(scoredHistory: ScoredMessage[]): Promise<Content[]> {
     if (scoredHistory.length <= agentConfig.summarization.recentMessagesToPreserve) {
       return scoredHistory; // Too small to summarize
@@ -42,20 +56,20 @@ export class ImportanceAwareCostOptimizedStrategy extends BaseSummarizationStrat
     // Calculate tokens to determine summarization approach
     const estimatedTokens = await countTokensForHistory(messagesToSummarize);
     
-    let summaryText: string | null;
-    
-    if (estimatedTokens > agentConfig.summarization.deepHistoryThreshold) {
-      // Use more aggressive summarization for very long histories
-      this.log(`Using aggressive summarization for ${estimatedTokens} tokens of less important older history`);
-      summaryText = await summarizeHistory(messagesToSummarize, 'aggressive');
+    let finalSummarizationMode = this.summarizationMode;
+    // If not already aggressive, check if deep history threshold triggers it
+    if (finalSummarizationMode === 'standard' && estimatedTokens > agentConfig.summarization.deepHistoryThreshold) {
+      this.log(`Deep history threshold (${agentConfig.summarization.deepHistoryThreshold} tokens) exceeded (${estimatedTokens} tokens). Switching to aggressive summarization.`);
+      finalSummarizationMode = 'aggressive';
     } else {
-      // Use standard summarization for moderate histories
-      this.log(`Using standard summarization for ${estimatedTokens} tokens of less important older history`);
-      summaryText = await summarizeHistory(messagesToSummarize, 'standard');
+      this.log(`Using ${finalSummarizationMode} summarization for ${estimatedTokens} tokens of less important older history`);
     }
     
+    // Summarize using the final determined mode
+    const summaryText = await summarizeHistory(messagesToSummarize, finalSummarizationMode);
+    
     if (!summaryText) {
-      this.log('Summarization failed, preserving all original history.');
+      this.log('Summarization failed, preserving all original older history + recent.');
       return [...olderHistory, ...recentMessages];
     }
     
@@ -66,7 +80,7 @@ export class ImportanceAwareCostOptimizedStrategy extends BaseSummarizationStrat
     const result = [...importantOlderMessages, summaryMessage, ...recentMessages];
     
     const newTokenCount = await countTokensForHistory(result);
-    this.log(`History summarized using importance-aware cost-optimized method. New token count: ${newTokenCount}`);
+    this.log(`History summarized using ${this.name} method (${finalSummarizationMode}). New token count: ${newTokenCount}`);
     
     return result;
   }

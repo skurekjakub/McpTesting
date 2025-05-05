@@ -18,7 +18,7 @@ import {
     deserializeHistory,
     resetSessionData,     // Renamed from resetCacheForSid
     DisplayHistoryItem
-} from './src/server/agent/history-cache'; // Updated path
+} from './src/server/agent/history/history-cache'; // Updated path
 import { resolvedProjectRoot } from './src/server/config'; // Import project root
 
 const dev = process.env.NODE_ENV !== 'production';

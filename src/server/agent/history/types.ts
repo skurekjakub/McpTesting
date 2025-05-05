@@ -40,6 +40,8 @@ export interface ConversationAnalysisResult {
   // Verbosity characteristics
   averageMessageLength: number;
   isVerbose: boolean;
+  isCasual?: boolean; // Added
+  isAssistantLike?: boolean; // Added
   
   // Topic characteristics
   primaryTopic: string;
@@ -54,6 +56,7 @@ export interface ConversationAnalysisResult {
     preserveReferences: boolean;
     trackOpenQuestions: boolean;
     reduceVerbosity: boolean;
+    summarizationAggressiveness?: 'normal' | 'high'; // Added
   };
   
   // Raw analysis details (for debugging/logging)
@@ -70,6 +73,7 @@ export enum ConversationPattern {
   RESEARCH_FOCUSED = 'research_focused',
   QUESTION_ANSWERING = 'question_answering',
   TASK_BASED = 'task_based',
+  CASUAL_CONVERSATION = 'casual_conversation', // Added
   EXPLORATION = 'exploration'
 }
 

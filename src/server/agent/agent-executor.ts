@@ -12,7 +12,8 @@ import { generateContentWithTools } from '../llm/gemini/generation';
 import { extractTextFromResult, extractFunctionCallFromResult } from '../llm/gemini/parsing';
 import { countTokensForText } from '../llm/gemini/tokenization';
 import { PromptManager } from './prompt-manager';
-import { HistoryManager } from './history/history-manager';
+import { historyManagerProvider } from './history/history-manager-provider'; // Import the provider
+import { HistoryManager } from './history/history-manager'; // Keep HistoryManager for type annotation
 import { ToolOrchestrator } from './tool-orchestrator';
 import { agentConfig } from './agent-config';
 
@@ -28,12 +29,10 @@ type StepCallback = (message: string) => void;
 export class AgentExecutor {
   private promptManager: PromptManager;
   private toolOrchestrator: ToolOrchestrator;
-  private historyManager: HistoryManager;
   
   constructor() {
     this.promptManager = new PromptManager();
     this.toolOrchestrator = new ToolOrchestrator();
-    this.historyManager = new HistoryManager();
   }
   
   /**
@@ -59,8 +58,10 @@ export class AgentExecutor {
     let currentHistory: Content[];
     
     try {
-      // Get the appropriate history manager based on conversation characteristics
-      const historyManager = this.historyManager;
+      // Get the appropriate history manager dynamically using the provider
+      logStep('Analyzing history to select appropriate manager...');
+      const historyManager = await historyManagerProvider.getHistoryManager(history);
+      logStep(`Using history manager with strategy: ${historyManager.getStrategyName()}`);
 
       // Process history and add user message
       logStep(`Processing prompt: '${userPrompt.substring(0, 100)}${userPrompt.length > 100 ? '...' : ''}'`);
@@ -69,12 +70,12 @@ export class AgentExecutor {
       // Discover available tools
       const tools = await this.toolOrchestrator.discoverTools(logStep);
       
-      // Execute the agent loop
-      const result = await this.executeAgentLoop(currentHistory, tools, logStep, historyManager);
+      // Execute the agent loop, passing the obtained manager
+      const result = await this.executeAgentLoop(currentHistory, tools, historyManager, logStep);
       finalResponse = result.response;
       currentHistory = result.history;
       
-      // Perform final cleanup
+      // Perform final cleanup using the same manager instance
       currentHistory = historyManager.cleanupDuplicateResponses(currentHistory);
       currentHistory = historyManager.cleanupEmptyMessages(currentHistory);
       
@@ -102,12 +103,9 @@ export class AgentExecutor {
   private async executeAgentLoop(
     history: Content[],
     tools: Tool[],
-    logCallback?: StepCallback,
-    historyManager?: HistoryManager
+    historyManager: HistoryManager, // Expect a HistoryManager instance
+    logCallback?: StepCallback
   ): Promise<{ response: string; history: Content[] }> {
-    // Use provided history manager or create a default one
-    const manager = historyManager || new HistoryManager();
-    
     const logStep = (message: string) => {
       logger.info(`${agentConfig.logging.agentExecutor} ${message}`);
       if (logCallback) logCallback(message);
@@ -173,8 +171,9 @@ export class AgentExecutor {
           currentHistory.push(functionResponse);
           
           // Check if we need to summarize after tool calls to manage context length
-          if (functionCallCount % 3 === 0) {
-            currentHistory = await manager.processHistory(currentHistory, undefined, logCallback);
+          if (functionCallCount % 3 === 0) { // Consider making this configurable
+            logStep('Checking history length after tool call...');
+            currentHistory = await historyManager.processHistory(currentHistory, undefined, logCallback);
           }
           
         } else {

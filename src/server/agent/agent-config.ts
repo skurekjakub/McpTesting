@@ -67,6 +67,13 @@ export const agentConfig = {
     importantKeywords: DEFAULT_IMPORTANT_KEYWORDS,
     minImportanceScoreToPreserve: DEFAULT_MIN_IMPORTANCE_SCORE_TO_PRESERVE,
   },
+
+  // Conversation analysis settings
+  analysis: {
+    analyzerStrategy: configuredAgentOptions.HISTORY_ANALYZER_STRATEGY,
+    // Add any options specific to analyzers here if needed
+    // e.g., maxMessagesToAnalyze: configuredAgentOptions.ANALYZER_MAX_MESSAGES
+  },
   
   // Logging prefixes for consistent logging patterns
   logging: {

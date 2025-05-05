@@ -18,6 +18,7 @@ const LlmConfigSchema = z.object({
   SUMMARIZATION_MODEL_NAME: z.string().default(DEFAULT_SUMMARIZATION_MODEL),
   COST_EFFICIENT_SUMMARIZATION_MODEL: z.string().default(DEFAULT_COST_EFFICIENT_SUMMARIZATION_MODEL),
   GENERATION_TEMPERATURE: z.number().min(0).max(1).default(DEFAULT_GENERATION_TEMPERATURE),
+  EMBEDDING_DEVICE: z.enum(["cpu", "auto", "gpu", "wasm", "webgpu", "cuda", "dml", "webnn", "webnn-gpu", "webnn-npu", "webnn-cpu"]).default('gpu'),
 });
 
 // --- Load and Process Configuration ---
@@ -47,6 +48,10 @@ const combinedLlmConfig = {
   GENERATION_TEMPERATURE: getConfigValue<number>(
     rawConfig, ['llm', 'parameters', 'generation_temperature'], 'generation_temperature'
   ),
+  
+  EMBEDDING_DEVICE: getConfigValue<string>(
+    rawConfig, ['llm', 'embeddings', 'device'], 'embedding_device' // Added
+  ),
 };
 
 // --- Validate and Export Configuration ---
@@ -68,6 +73,7 @@ export function logLlmConfigStatus(): void {
     { name: "Summarization Model", value: llmConfig.SUMMARIZATION_MODEL_NAME },
     { name: "Cost-Efficient Summarization Model", value: llmConfig.COST_EFFICIENT_SUMMARIZATION_MODEL },
     { name: "Generation Temperature", value: llmConfig.GENERATION_TEMPERATURE },
+    { name: "Embedding Device Hint", value: llmConfig.EMBEDDING_DEVICE }, // Added
   ];
   
   logger.info('--- LLM Configuration ---');

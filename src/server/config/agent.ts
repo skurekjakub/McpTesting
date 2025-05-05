@@ -13,6 +13,7 @@ const DEFAULT_SUMMARY_MESSAGE_PREFIX = 'Summary of earlier conversation:\n';
 const DEFAULT_COST_OPTIMIZATION_ENABLED = true;
 const DEFAULT_SYSTEM_INSTRUCTION_FILENAME = 'system_instruction.md';
 const DEFAULT_SUMMARIZER_INSTRUCTION_FILENAME = 'system-instruction-summarizer.md';
+const DEFAULT_HISTORY_ANALYZER_STRATEGY = 'semantic';
 
 // --- Define Agent Configuration Schema ---
 const AgentConfigSchema = z.object({
@@ -31,6 +32,8 @@ const AgentConfigSchema = z.object({
   SYSTEM_INSTRUCTION_FILENAME: z.string().default(DEFAULT_SYSTEM_INSTRUCTION_FILENAME),
   SYSTEM_INSTRUCTION_DIRECTORY: z.string().default(BOT_CONFIG_DIR),
   SUMMARIZER_INSTRUCTION_FILENAME: z.string().default(DEFAULT_SUMMARIZER_INSTRUCTION_FILENAME),
+
+  HISTORY_ANALYZER_STRATEGY: z.enum(['regex', 'semantic']).default(DEFAULT_HISTORY_ANALYZER_STRATEGY), // 'regex' or 'semantic'
 });
 
 // --- Load and Process Configuration ---
@@ -79,6 +82,10 @@ const combinedAgentConfig = {
   
   SUMMARIZER_INSTRUCTION_FILENAME: getConfigValue<string>(
     rawConfig, ['agent', 'files', 'summarizer_instruction_filename'], 'summarizer_instruction_filename'
+  ),
+
+  HISTORY_ANALYZER_STRATEGY: getConfigValue<string>(
+    rawConfig, ['agent', 'analysis', 'history_analyzer_strategy'], 'history_analyzer_strategy'
   ),
 };
 
