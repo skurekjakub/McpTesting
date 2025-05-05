@@ -13,7 +13,6 @@ import { extractTextFromResult, extractFunctionCallFromResult } from '../llm/gem
 import { countTokensForText } from '../llm/gemini/tokenization';
 import { PromptManager } from './prompt-manager';
 import { HistoryManager } from './history-manager';
-import { HistoryManagerProvider } from './history/history-manager-provider';
 import { ToolOrchestrator } from './tool-orchestrator';
 import { agentConfig } from './agent-config';
 
@@ -29,10 +28,12 @@ type StepCallback = (message: string) => void;
 export class AgentExecutor {
   private promptManager: PromptManager;
   private toolOrchestrator: ToolOrchestrator;
+  private historyManager: HistoryManager;
   
   constructor() {
     this.promptManager = new PromptManager();
     this.toolOrchestrator = new ToolOrchestrator();
+    this.historyManager = new HistoryManager();
   }
   
   /**
@@ -59,9 +60,8 @@ export class AgentExecutor {
     
     try {
       // Get the appropriate history manager based on conversation characteristics
-      const historyManager = this.selectHistoryManager(history, userPrompt);
-      logStep(`Selected history manager with strategy: ${historyManager.getStrategyName()}`);
-      
+      const historyManager = this.historyManager;
+
       // Process history and add user message
       logStep(`Processing prompt: '${userPrompt.substring(0, 100)}${userPrompt.length > 100 ? '...' : ''}'`);
       currentHistory = await historyManager.processHistory(history, userPrompt, logStep);
@@ -93,29 +93,6 @@ export class AgentExecutor {
     }
     
     return [finalResponse, currentHistory];
-  }
-
-  /**
-   * Selects an appropriate history manager based on conversation characteristics
-   * and execution context.
-   */
-  private selectHistoryManager(history: Content[], userPrompt?: string): HistoryManager {
-    // Include the current user prompt in analysis if available
-    const historyToAnalyze = userPrompt 
-      ? [...history, { role: 'user', parts: [{ text: userPrompt }] }]
-      : history;
-    
-    // Calculate model token limit based on config
-    const tokenLimit = agentConfig.summarization.threshold;
-      
-    // Use the HistoryManagerProvider to get an optimally configured history manager
-    return HistoryManagerProvider.provideOptimalHistoryManager(
-      historyToAnalyze, 
-      { 
-        tokenLimit,
-        costOptimization: agentConfig.summarization.costOptimizationEnabled
-      }
-    );
   }
   
   /**
