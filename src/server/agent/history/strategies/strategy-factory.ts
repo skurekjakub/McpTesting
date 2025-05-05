@@ -1,5 +1,5 @@
 // src/server/agent/history/strategies/strategy-factory.ts
-import { SummarizationStrategy } from './base-strategy';
+import { SummarizationStrategy } from './types';
 import { TraditionalSummarizationStrategy } from './traditional-strategy';
 import { CostOptimizedSummarizationStrategy } from './cost-optimized-strategy';
 import { ImportanceAwareTraditionalStrategy } from './importance-aware-traditional-strategy';

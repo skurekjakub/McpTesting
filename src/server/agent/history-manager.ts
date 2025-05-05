@@ -7,7 +7,7 @@ import { countTokensForHistory } from '../llm/gemini/tokenization';
 
 // Import specialized services from history subfolder
 import { ImportanceScorer } from './history/importance-scorer';
-import { SummarizationStrategyFactory } from './history/summarization-strategies';
+import { SummarizationStrategyFactory } from './history/strategies/strategy-factory';
 import { HistoryCleanupService } from './history/cleanup-service';
 import { MessageUtils } from './history/message-utils';
 import { LogCallback } from './history/types';
