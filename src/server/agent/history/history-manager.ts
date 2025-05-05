@@ -1,17 +1,17 @@
 // src/server/agent/history-manager.ts
 import { Content } from '@google/generative-ai';
 
-import logger from '../logger';
-import { agentConfig } from './agent-config';
-import { countTokensForHistory } from '../llm/gemini/tokenization';
+import logger from '../../logger';
+import { agentConfig } from '../agent-config';
+import { countTokensForHistory } from '../../llm/gemini/tokenization';
 
 // Import specialized services from history subfolder
-import { ImportanceScorer } from './history/importance-scorer';
-import { SummarizationStrategyFactory } from './history/strategies/strategy-factory';
-import { HistoryCleanupService } from './history/cleanup-service';
-import { MessageUtils } from './history/message-utils';
-import { LogCallback } from './history/types';
-import { StrategyOptions } from './history/strategies/strategy-factory';
+import { ImportanceScorer } from './importance-scorer';
+import { SummarizationStrategyFactory } from './strategies/strategy-factory';
+import { HistoryCleanupService } from './cleanup-service';
+import { MessageUtils } from './message-utils';
+import { LogCallback } from './types';
+import { StrategyOptions } from './strategies/strategy-factory';
 
 /**
  * Manages conversation history, including summarization when needed.

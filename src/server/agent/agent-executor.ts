@@ -12,7 +12,7 @@ import { generateContentWithTools } from '../llm/gemini/generation';
 import { extractTextFromResult, extractFunctionCallFromResult } from '../llm/gemini/parsing';
 import { countTokensForText } from '../llm/gemini/tokenization';
 import { PromptManager } from './prompt-manager';
-import { HistoryManager } from './history-manager';
+import { HistoryManager } from './history/history-manager';
 import { ToolOrchestrator } from './tool-orchestrator';
 import { agentConfig } from './agent-config';
 
