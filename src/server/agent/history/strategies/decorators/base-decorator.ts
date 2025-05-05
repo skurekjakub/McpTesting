@@ -1,6 +1,6 @@
 // src/server/agent/history/strategies/base-decorator.ts
 import { Content } from '@google/generative-ai';
-import { SummarizationStrategy } from './types';
+import { SummarizationStrategy } from '../types';
 
 /**
  * Base decorator class for implementing the Decorator pattern with summarization strategies.

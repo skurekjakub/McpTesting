@@ -1,6 +1,6 @@
 // src/server/agent/history/strategies/decorators/reference-preserving-decorator.ts
 import { Content } from '@google/generative-ai';
-import { StrategySummarizationDecorator } from '../base-decorator';
+import { StrategySummarizationDecorator } from './base-decorator';
 import { MessageUtils } from '../../message-utils';
 import logger from '../../../../logger';
 
