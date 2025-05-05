@@ -29,8 +29,8 @@ export class HistoryManager {
     
     // Default strategy options with smart defaults for programming contexts
     this.strategyOptions = {
-      useImportanceScoring: agentConfig.importanceScoring.enabled,
-      useCostOptimization: agentConfig.summarization.costOptimizationEnabled,
+      useImportanceScoring: true,
+      useCostOptimization: false,
       preserveCodeBlocks: true,      // Default to preserving code blocks
       preserveReferences: true,      // Default to preserving URLs and file paths
       preserveOpenQuestions: true,   // Default to preserving unanswered questions
@@ -68,13 +68,15 @@ export class HistoryManager {
     }
     
     // Check if we need to summarize
-    const tokenCount = await countTokensForHistory(processedHistory);
-    logStep(`Current history token count: ${tokenCount}`);
+    const initialTokenCount = await countTokensForHistory(processedHistory);
+    logStep(`Current history token count: ${initialTokenCount}`);
     
-    if (tokenCount <= agentConfig.summarization.threshold) {
-      return processedHistory; // No summarization needed
+    if (initialTokenCount <= agentConfig.summarization.threshold) {
+      // Even if we don't need to summarize, sanitize before returning
+      return MessageUtils.sanitizeContent(processedHistory);
     }
     
+    // Token threshold exceeded, apply summarization
     logStep(`Token threshold (${agentConfig.summarization.threshold}) exceeded. Applying summarization.`);
 
     // Create the appropriate strategy via factory using our configured strategy options
@@ -92,10 +94,51 @@ export class HistoryManager {
       processedHistory = await strategy.summarize(processedHistory);
     }
     
-    const newTokenCount = await countTokensForHistory(processedHistory);
-    logStep(`History summarized successfully. New token count: ${newTokenCount}`);
+    // IMPORTANT: Sanitize the history to remove any non-standard properties
+    const sanitizedHistory = MessageUtils.sanitizeContent(processedHistory);
     
-    return processedHistory;
+    // Count tokens AFTER sanitization to get accurate count
+    const newTokenCount = await countTokensForHistory(sanitizedHistory);
+    
+    // Validate summarization effectiveness
+    if (newTokenCount >= initialTokenCount) {
+      // Summarization didn't reduce token count - this indicates a potential issue
+      logger.warn(`${agentConfig.logging.historyManager} Summarization did not reduce token count: ${initialTokenCount} → ${newTokenCount}`);
+      
+      // Force a more aggressive fallback strategy if defined in config
+      if (agentConfig.summarization.fallbackStrategy === 'aggressive' && 
+          newTokenCount > agentConfig.summarization.threshold * 1.2) {
+        
+        logStep('Applying aggressive fallback summarization strategy');
+        
+        // Keep only the most recent n messages as a last resort
+        const fallbackKeepCount = agentConfig.summarization.fallbackMessagesToKeep || 5;
+        let fallbackHistory = sanitizedHistory;
+        
+        if (fallbackHistory.length > fallbackKeepCount) {
+          // Keep first user message for context + most recent messages
+          const firstMsg = fallbackHistory.find(msg => msg.role === 'user');
+          const recentMsgs = fallbackHistory.slice(-fallbackKeepCount);
+          
+          fallbackHistory = firstMsg && firstMsg !== recentMsgs[0] ? 
+            [firstMsg, ...recentMsgs] : 
+            recentMsgs;
+            
+          // Include a summary indicator at the start
+          fallbackHistory.unshift(MessageUtils.createModelMessage(
+            `${agentConfig.history.summaryMessagePrefix}Previous conversation history was aggressively summarized due to length.`
+          ));
+          
+          const fallbackTokenCount = await countTokensForHistory(fallbackHistory);
+          logStep(`Applied aggressive fallback summarization. New token count: ${fallbackTokenCount}`);
+          
+          return fallbackHistory;
+        }
+      }
+    }
+    
+    logStep(`History summarized successfully. New token count: ${newTokenCount}`);
+    return sanitizedHistory;
   }
   
   /**

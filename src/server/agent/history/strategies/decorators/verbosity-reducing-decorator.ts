@@ -128,7 +128,7 @@ export class VerbosityReducingDecorator extends StrategySummarizationDecorator {
     try {
       const client = getGeminiClient();
       const model = client.getGenerativeModel({ 
-        model: "gemini-1.0-pro",
+        model: "gemini-2.0-flash",
         generationConfig: { temperature: 0.2 } // Use low temperature for more concise output
       });
       

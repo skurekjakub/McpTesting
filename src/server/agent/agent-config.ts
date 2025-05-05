@@ -50,11 +50,12 @@ export const agentConfig = {
 
   // Summarization settings (pulling from main config)
   summarization: {
-    threshold: configuredAgentOptions.SUMMARIZATION_THRESHOLD_TOKENS,
-    costOptimizationEnabled: configuredAgentOptions.COST_OPTIMIZATION_ENABLED,
-    recentMessagesToPreserve: configuredAgentOptions.RECENT_MESSAGES_TO_PRESERVE,
-    deepHistoryThreshold: configuredAgentOptions.DEEP_HISTORY_THRESHOLD,
-    targetCompressionRatio: configuredAgentOptions.TARGET_COMPRESSION_RATIO,
+    threshold: configuredAgentOptions?.SUMMARIZATION_THRESHOLD_TOKENS,
+    recentMessagesToPreserve: configuredAgentOptions?.RECENT_MESSAGES_TO_PRESERVE,
+    deepHistoryThreshold: configuredAgentOptions?.DEEP_HISTORY_THRESHOLD,
+    targetCompressionRatio: configuredAgentOptions?.TARGET_COMPRESSION_RATIO,
+    fallbackStrategy: 'aggressive',
+    fallbackMessagesToKeep: 5,
   },
   
   // Contextual importance scoring settings - internal implementation detail

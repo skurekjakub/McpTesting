@@ -37,7 +37,7 @@ export class HistoryManagerProvider {
     // Default options (can be influenced by global config too)
     const options: Partial<StrategyOptions> = {
       useImportanceScoring: agentConfig.importanceScoring.enabled,
-      useCostOptimization: agentConfig.summarization.costOptimizationEnabled,
+      useCostOptimization: false,
       // Start with defaults based on analysis recommendations or fallbacks
       preserveCodeBlocks: analysisResult.recommendedOptimizations?.preserveCode ?? true,
       preserveReferences: analysisResult.recommendedOptimizations?.preserveReferences ?? true,

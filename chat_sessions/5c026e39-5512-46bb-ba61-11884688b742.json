@@ -1,0 +1,13 @@
+{
+  "gemini_history_internal": "[{\"role\":\"user\",\"parts\":[{\"text\":\"test\"}]},{\"parts\":[{\"text\":\"Okay, test acknowledged! I'm here and ready. What would you like to test or ask me to do? I can interact with the local filesystem (read, write, list files, etc.) if you have a specific task in mind.\"}],\"role\":\"model\"}]",
+  "chat_history_display": [
+    {
+      "type": "user",
+      "text": "test"
+    },
+    {
+      "type": "model",
+      "text": "Okay, test acknowledged! I'm here and ready. What would you like to test or ask me to do? I can interact with the local filesystem (read, write, list files, etc.) if you have a specific task in mind."
+    }
+  ]
+}
