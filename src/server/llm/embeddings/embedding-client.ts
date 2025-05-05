@@ -2,7 +2,9 @@ import { Content } from '@google/generative-ai';
 import { MessageUtils } from '../../agent/history/message-utils';
 import logger from '../../logger';
 import { EmbeddingVector, IEmbeddingClient } from './types';
-import { llmConfig } from '../../config/index'; // Correct import path with explicit index
+import { llmConfig } from '../../config/index';
+// Import cosine similarity from ml-distance correctly
+import * as mlDistance from 'ml-distance';
 
 // Import Hugging Face components
 import { pipeline, Pipeline, Tensor, FeatureExtractionPipeline } from '@huggingface/transformers';
@@ -123,33 +125,28 @@ class HuggingFaceEmbeddingClient implements IEmbeddingClient {
 // Export a singleton instance of the new client
 export const embeddingClient: IEmbeddingClient = new HuggingFaceEmbeddingClient();
 
-// --- Utility for Similarity (Ensure implementation is correct) ---
+/**
+ * Calculate cosine similarity between two vectors
+ * Uses ml-distance library which is optimized for performance and handles edge cases
+ * 
+ * @param vecA First embedding vector
+ * @param vecB Second embedding vector
+ * @returns Similarity score between -1 and 1 (1 being identical, 0 being orthogonal)
+ */
 export function cosineSimilarity(vecA: EmbeddingVector, vecB: EmbeddingVector): number {
     if (!vecA || !vecB || vecA.length !== vecB.length || vecA.length === 0) {
-        // Added checks for null/undefined vectors
         logger.warn('[Embeddings] Invalid input for cosineSimilarity.');
         return 0;
     }
-
-    let dotProduct = 0;
-    let magnitudeA = 0;
-    let magnitudeB = 0;
-
-    for (let i = 0; i < vecA.length; i++) {
-        dotProduct += vecA[i] * vecB[i];
-        magnitudeA += vecA[i] * vecA[i];
-        magnitudeB += vecB[i] * vecB[i];
+    
+    try {
+        // ml-distance similarity.cosine directly returns the similarity (not distance)
+        const similarity = mlDistance.similarity.cosine(vecA, vecB);
+        // Ensure the result is within the valid range [-1, 1] to handle any floating-point issues
+        return Math.max(-1, Math.min(1, similarity));
+    } catch (error) {
+        logger.error(`[Embeddings] Error calculating cosine similarity: ${error}`);
+        // Fallback to 0 (orthogonal/unrelated) on error
+        return 0;
     }
-
-    magnitudeA = Math.sqrt(magnitudeA);
-    magnitudeB = Math.sqrt(magnitudeB);
-
-    if (magnitudeA === 0 || magnitudeB === 0) {
-        logger.debug('[Embeddings] Zero magnitude vector in cosineSimilarity.');
-        return 0; // Return 0 if either vector has zero magnitude
-    }
-
-    const similarity = dotProduct / (magnitudeA * magnitudeB);
-    // Clamp similarity to [-1, 1] to handle potential floating point inaccuracies
-    return Math.max(-1, Math.min(1, similarity)); // Ensure this return is present and correct
 }
